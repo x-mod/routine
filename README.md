@@ -23,14 +23,14 @@ type ExecutorFunc func(context.Context, ...interface{})
 
 ### Go Main
 
-`routine.Main` is the basic function, when use the `routine` package. The ``routine.Main` does the following things for you:
+`routine.Main` is the basic function, when use the `routine` package. The `routine.Main` does the following things for you:
 
 - arguments from context
 - support signal interupts
 - support context wait & cancel
 
 
-````
+````go
 import "github.com/liujianping/routine"
 
 func main(){
@@ -47,7 +47,7 @@ func main(){
 
 **define your own signal interruptor**
 
-````
+````go
 // InterruptHandler definition
 type InterruptHandler func(ctx context.Context, cancel context.CancelFunc) (exit bool)
 
@@ -66,7 +66,7 @@ type Interruptor interface {
 - sync.wait Add & Done
 - context.Context Done check for executor go routine
 
-````
+````go
 import "github.com/liujianping/routine"
 
 func main(){
@@ -89,7 +89,7 @@ func main(){
 
 **dynamic executor example**:
 
-````
+````go
 import "github.com/liujianping/routine"
 
 func main(){
@@ -116,7 +116,7 @@ func main(){
 
 **fixed executor example**:
 
-````
+````go
 import "github.com/liujianping/routine"
 
 func main(){
@@ -148,7 +148,7 @@ func main(){
 
 `routine.Crontab` is similar interface like linux system's crontab jobs. You can 
 
-````
+````go
 import "github.com/liujianping/routine"
 
 func main(){
@@ -178,7 +178,3 @@ func main(){
 }
 ````
 
-### Why another go routine management ?
-
-- Force the application use go routine limitly and effiently 
-- Use  context to control the whole application's flow, like graceful shutdown etc.
