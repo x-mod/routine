@@ -12,7 +12,8 @@ dedicated goroutine managment for `go main`, `go func`, `go routine pool`, `go c
 
 In `routine` package, it use the `Executor` interface or `ExecutorFunc` instance for your implemention. 
 
-````
+````go
+
 type Executor interface{
     Execute(context.Context, ...interface{})
 }
@@ -31,7 +32,7 @@ type ExecutorFunc func(context.Context, ...interface{})
 
 
 ````go
-import "github.com/liujianping/routine"
+import "github.com/x-mod/routine"
 
 func main(){
     routine.Main(routine.WithArguments(context.TODO(), "first arg", "second", false), ExecutorFunc(func(ctx context.Context, args ...interface{}){
@@ -67,7 +68,7 @@ type Interruptor interface {
 - context.Context Done check for executor go routine
 
 ````go
-import "github.com/liujianping/routine"
+import "github.com/x-mod/routine"
 
 func main(){
     routine.Main(context.TODO(), ExecutorFunc(func(ctx context.Context, args ...interface{}){
@@ -90,7 +91,7 @@ func main(){
 **dynamic executor example**:
 
 ````go
-import "github.com/liujianping/routine"
+import "github.com/x-mod/routine"
 
 func main(){
 
@@ -117,7 +118,7 @@ func main(){
 **fixed executor example**:
 
 ````go
-import "github.com/liujianping/routine"
+import "github.com/x-mod/routine"
 
 func main(){
 
@@ -149,7 +150,7 @@ func main(){
 `routine.Crontab` is similar interface like linux system's crontab jobs. You can 
 
 ````go
-import "github.com/liujianping/routine"
+import "github.com/x-mod/routine"
 
 func main(){
     crontab := routine.NewCrontab(routine.RunningSize(4))
