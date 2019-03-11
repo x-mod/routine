@@ -43,6 +43,15 @@ func (p *Pool) clear() bool {
 	return (p.running > p.cf.runningSize)
 }
 
+func (p *Pool) overload() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cf.maxCurrency > 0 {
+		return (p.running >= p.cf.maxCurrency)
+	}
+	return false
+}
+
 func (p *Pool) increment() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -99,9 +108,12 @@ func (p *Pool) Go(ctx context.Context, exec Executor) {
 		case p.waitRunners <- &runner{ctx, exec}:
 			break
 		default:
-			//waitRunners is full, start a new goroutine
-			Go(p.rootCtx, ExecutorFunc(p.execute))
-			runtime.Gosched()
+			if !p.overload() {
+				//waitRunners is full, start a new goroutine
+				Go(p.rootCtx, ExecutorFunc(p.execute))
+				runtime.Gosched()
+			}
+			//blocked when overloaded
 			p.waitRunners <- &runner{ctx, exec}
 		}
 	}

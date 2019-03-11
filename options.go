@@ -5,6 +5,7 @@ import "time"
 type config struct {
 	runningSize   int
 	waitingSize   int
+	maxCurrency   int
 	clearDuration time.Duration
 	executor      Executor
 }
@@ -23,6 +24,13 @@ func RunningSize(sz int) Option {
 func WaitingSize(sz int) Option {
 	return func(cfg *config) {
 		cfg.waitingSize = sz
+	}
+}
+
+//MaxCurrency Pool Option for max current running goroutine size
+func MaxCurrency(sz int) Option {
+	return func(cfg *config) {
+		cfg.maxCurrency = sz
 	}
 }
 
