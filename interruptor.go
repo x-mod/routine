@@ -2,16 +2,15 @@ package routine
 
 import (
 	"context"
-	"os"
 	"syscall"
 )
 
 // InterruptHandler definition
-type InterruptHandler func(ctx context.Context, cancel context.CancelFunc) (exit bool)
+type InterruptHandler func(ctx context.Context) (exit bool)
 
 // Interruptor definition
 type Interruptor interface {
-	Signal() os.Signal
+	Signal() syscall.Signal
 	Interrupt() InterruptHandler
 }
 
@@ -20,38 +19,33 @@ var DefaultCancelInterruptors []Interruptor
 
 // CancelInterruptor definition
 type CancelInterruptor struct {
-	sig os.Signal
-	fn  InterruptHandler
+	sig syscall.Signal
 }
 
 // NewCancelInterruptor if fn is nil will cancel context
-func NewCancelInterruptor(sig os.Signal, fn InterruptHandler) *CancelInterruptor {
+func NewCancelInterruptor(sig syscall.Signal) *CancelInterruptor {
 	return &CancelInterruptor{
 		sig: sig,
-		fn:  fn,
 	}
 }
 
 // Signal inplement the interface
-func (c *CancelInterruptor) Signal() os.Signal {
+func (c *CancelInterruptor) Signal() syscall.Signal {
 	return c.sig
 }
 
 // Interrupt inplement the interface
 func (c *CancelInterruptor) Interrupt() InterruptHandler {
-	return func(ctx context.Context, cancel context.CancelFunc) bool {
-		cancel()
-		if c.fn != nil {
-			return c.fn(ctx, cancel)
-		}
+	return func(ctx context.Context) bool {
+		//always exit
 		return true
 	}
 }
 
 func init() {
 	DefaultCancelInterruptors = []Interruptor{
-		NewCancelInterruptor(syscall.SIGINT, nil),
-		NewCancelInterruptor(syscall.SIGTERM, nil),
-		NewCancelInterruptor(syscall.SIGKILL, nil),
+		NewCancelInterruptor(syscall.SIGINT),
+		NewCancelInterruptor(syscall.SIGTERM),
+		NewCancelInterruptor(syscall.SIGKILL),
 	}
 }

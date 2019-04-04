@@ -2,65 +2,49 @@ package routine
 
 import (
 	"context"
+	"errors"
 	"log"
 	"testing"
+	"time"
 )
 
-func TestMain(t *testing.T) {
-	type args struct {
-		parent       context.Context
-		exec         Executor
-		interruptors []Interruptor
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{
-			"main",
-			args{
-				WithArgments(context.TODO(), "main", 1, false, "sdfds"),
-				ExecutorFunc(func(ctx context.Context, args ...interface{}) {
-					t.Log(args)
-				}),
-				[]Interruptor{},
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			Main(tt.args.parent, tt.args.exec, tt.args.interruptors...)
-		})
-	}
-}
-
 func TestRun(t *testing.T) {
-	type args struct {
-		ctx  context.Context
-		exec Executor
-	}
-	tests := []struct {
-		name string
-		args args
-	}{
-		{
-			"run",
-			args{
-				WithArgments(context.TODO(), "run", 1, false, "sdfds"),
-				ExecutorFunc(func(ctx context.Context, args ...interface{}) {
-					log.Println("runner ...")
-					t.Log(args)
-				}),
-			},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			Main(tt.args.ctx, ExecutorFunc(func(ctx context.Context, args ...interface{}) {
-				Go(ctx, tt.args.exec)
-				Go(ctx, tt.args.exec)
-				Go(ctx, tt.args.exec)
-			}))
-		})
-	}
+	err := Main(context.TODO(), ExecutorFunc(func(ctx context.Context) error {
+		log.Println("main executing begin ...")
+
+		ch1 := Go(ctx, Retry(3, ExecutorFunc(func(arg1 context.Context) error {
+			log.Println("Go1 retry begin ...", FromRetry(arg1))
+			time.Sleep(1 * time.Second)
+			log.Println("Go1 retry end")
+			return errors.New("Go1 error")
+		})))
+		log.Println("Go1 result: ", <-ch1)
+
+		ch2 := Go(ctx, Repeat(2, time.Second, ExecutorFunc(func(arg1 context.Context) error {
+			log.Println("Go2 repeat begin ...", FromRepeat(arg1))
+			time.Sleep(2 * time.Second)
+			log.Println("Go2 repeat end")
+			return nil
+		})))
+		log.Println("Go2 result: ", <-ch2)
+
+		Go(ctx, Repeat(2, time.Second, Guarantee(ExecutorFunc(func(arg1 context.Context) error {
+			log.Println("Go4 repeat guarantee begin ...")
+			log.Println("Go4 repeat guarantee end")
+			return errors.New("Go4 failed")
+		}))))
+
+		Go(ctx, Crontab("* * * * *", ExecutorFunc(func(arg1 context.Context) error {
+			log.Println("Go3 crontab begin ...", FromCrontab(arg1))
+			log.Println("Go3 crontab end")
+			return nil
+		})))
+
+		ch5 := Go(ctx, Repeat(3, time.Second, Command("echo", "hello", "routine")))
+		log.Println("Go5 result: ", <-ch5)
+
+		log.Println("main executing end")
+		return nil
+	}), DefaultCancelInterruptors...)
+	log.Println("main exit: ", err)
 }

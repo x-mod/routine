@@ -5,35 +5,17 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"syscall"
+	"time"
+
+	"github.com/x-mod/errors"
 )
 
-type _argments struct{}
-
-//WithArgments inject into context
-func WithArgments(ctx context.Context, args ...interface{}) context.Context {
-	if ctx != nil {
-		return context.WithValue(ctx, _argments{}, args)
-	}
-	return context.WithValue(context.TODO(), _argments{}, args)
-}
-
-//ArgumentsFrom extract from context
-func ArgumentsFrom(ctx context.Context) []interface{} {
-	if ctx != nil {
-		argments := ctx.Value(_argments{})
-		if argments != nil {
-			return argments.([]interface{})
-		}
-	}
-	return []interface{}{}
-}
-
 //Main wrapper for executor with waits & signal interuptors
-func Main(parent context.Context, exec Executor, interruptors ...Interruptor) {
+func Main(parent context.Context, exec Executor, interruptors ...Interruptor) error {
 	// context with cancel & wait
 	ctx, cancel := context.WithCancel(WithWait(parent))
 	defer cancel()
-
 	// signals
 	sigchan := make(chan os.Signal)
 	sighandlers := make(map[os.Signal]InterruptHandler)
@@ -42,69 +24,73 @@ func Main(parent context.Context, exec Executor, interruptors ...Interruptor) {
 		sighandlers[interruptor.Signal()] = interruptor.Interrupt()
 	}
 
-	// channel for function (run) done
-	if exec != nil {
-		ch := make(chan struct{})
-		go func(ctx context.Context) {
-			argments := ArgumentsFrom(ctx)
-			exec.Execute(ctx, argments...)
-			ch <- struct{}{}
-		}(ctx)
+	ch := make(chan error)
+	go func() {
+		//main executing
+		if err := exec.Execute(ctx); err != nil {
+			ch <- err
+			return
+		}
 
-		//yields to other goroutines
-		runtime.Gosched()
+		//time after a short time interval, reschedule to subroutines
+		<-time.After(50 * time.Millisecond)
 
-		// main exit for sig & finished
-		for {
-			select {
-			case sig := <-sigchan:
-				// cancel when a signal catched
-				if handler, ok := sighandlers[sig]; ok {
-					if quit := handler(ctx, cancel); quit {
-						goto Quit
-					}
+		//waiting for subroutines finishing
+		Wait(ctx)
+		close(ch)
+	}()
+
+	// main exit for sig & finished
+	for {
+		select {
+		case sig := <-sigchan:
+			// cancel when a signal catched
+			if h, ok := sighandlers[sig]; ok {
+				if h(ctx) {
+					return errors.CodeError(SignalCode(sig.(syscall.Signal)))
 				}
-			case <-ctx.Done():
-				goto Quit
-			case <-ch:
-				goto Quit
 			}
+		case <-ctx.Done():
+			return errors.WithCode(ctx.Err(), GeneralErr)
+		case err, ok := <-ch:
+			if !ok {
+				return nil
+			}
+			return errors.WithCode(err, GeneralErr)
 		}
 	}
-
-Quit:
-	// wait goroutines
-	Wait(ctx)
 }
 
-func execute(ctx context.Context, exec Executor) {
+//Go wrapper for go keyword, use in MAIN function
+func Go(ctx context.Context, exec Executor) chan error {
+	ch := make(chan error, 1)
 	if exec == nil {
-		return
+		ch <- ErrNoneExecutor
+		return ch
 	}
 	if ctx == nil {
-		panic("context should never be null")
+		ch <- ErrNoneContext
+		return ch
 	}
-	WaitAdd(ctx, 1)
-	defer WaitDone(ctx)
 
-	// channel for function (run) done
-	ch := make(chan struct{})
-	go func(ctx context.Context) {
-		argments := ArgumentsFrom(ctx)
-		exec.Execute(ctx, argments...)
-		ch <- struct{}{}
-	}(ctx)
+	go func() {
+		WaitAdd(ctx, 1)
+		defer WaitDone(ctx)
 
-	//yields to other goroutines
-	runtime.Gosched()
-	// run exit for cancel & finished
-	select {
-	case <-ctx.Done():
-	case <-ch:
-	}
-}
+		// channel for function (run) done
+		stop := make(chan struct{})
+		go func() {
+			ch <- exec.Execute(ctx)
+			close(stop)
+		}()
 
-//Go wrapper for system go func
-func Go(ctx context.Context, exec Executor) {
-	go execute(ctx, exec)
+		runtime.Gosched()
+		// run exit for cancel & finished
+		select {
+		case <-ctx.Done():
+			ch <- ctx.Err()
+		case <-stop:
+		}
+	}()
+	return ch
 }
