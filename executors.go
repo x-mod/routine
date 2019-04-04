@@ -14,7 +14,7 @@ type GuaranteeExecutor struct {
 }
 
 //Guarantee new
-func Guarantee(exec Executor) *GuaranteeExecutor {
+func Guarantee(exec Executor) Executor {
 	return &GuaranteeExecutor{exec}
 }
 
@@ -53,7 +53,7 @@ func FromRetry(ctx context.Context) int {
 }
 
 //Retry new
-func Retry(retry int, exec Executor) *RetryExecutor {
+func Retry(retry int, exec Executor) Executor {
 	return &RetryExecutor{
 		retryTimes: retry,
 		exec:       exec,
@@ -96,7 +96,7 @@ func FromRepeat(ctx context.Context) int {
 }
 
 //Repeat new
-func Repeat(repeat int, interval time.Duration, exec Executor) *RepeatExecutor {
+func Repeat(repeat int, interval time.Duration, exec Executor) Executor {
 	return &RepeatExecutor{
 		repeatTimes:    repeat,
 		repeatInterval: interval,
@@ -151,7 +151,7 @@ func FromCrontab(ctx context.Context) time.Time {
 }
 
 //Crontab new
-func Crontab(plan string, exec Executor) *CrontabExecutor {
+func Crontab(plan string, exec Executor) Executor {
 	return &CrontabExecutor{
 		plan: plan,
 		exec: exec,
@@ -191,7 +191,7 @@ type CommandExecutor struct {
 }
 
 //Command new
-func Command(cmd string, args ...string) *CommandExecutor {
+func Command(cmd string, args ...string) Executor {
 	return &CommandExecutor{command: cmd, args: args}
 }
 
@@ -216,7 +216,7 @@ type TimeoutExecutor struct {
 }
 
 //Timeout new
-func Timeout(d time.Duration, exec Executor) *TimeoutExecutor {
+func Timeout(d time.Duration, exec Executor) Executor {
 	return &TimeoutExecutor{
 		timeout: d,
 		exec:    exec,
@@ -238,7 +238,7 @@ type DeadlineExecutor struct {
 }
 
 //Deadline new
-func Deadline(d time.Time, exec Executor) *DeadlineExecutor {
+func Deadline(d time.Time, exec Executor) Executor {
 	return &DeadlineExecutor{
 		deadline: d,
 		exec:     exec,
