@@ -252,3 +252,25 @@ func (tm *DeadlineExecutor) Execute(ctx context.Context) error {
 	ch := Go(tmCtx, tm.exec)
 	return <-ch
 }
+
+//ConcurrentExecutor struct
+type ConcurrentExecutor struct {
+	concurrent int
+	exec       Executor
+}
+
+//Concurrent new
+func Concurrent(c int, exec Executor) Executor {
+	return &ConcurrentExecutor{
+		concurrent: c,
+		exec:       exec,
+	}
+}
+
+//Execute implement Executor
+func (ce *ConcurrentExecutor) Execute(ctx context.Context) error {
+	for i := 0; i < ce.concurrent; i++ {
+		Go(ctx, Guarantee(ce.exec))
+	}
+	return nil
+}

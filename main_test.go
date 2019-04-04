@@ -50,6 +50,8 @@ func TestRun(t *testing.T) {
 		ch7 := Go(ctx, Deadline(time.Now().Add(time.Second), Command("sleep", "6")))
 		log.Println("Go7 deadline result: ", <-ch7)
 
+		Go(ctx, Concurrent(20, Command("echo", "hello")))
+
 		log.Println("main executing end")
 		return nil
 	}), DefaultCancelInterruptors...)
