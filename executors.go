@@ -208,3 +208,47 @@ func (cmd *CommandExecutor) Execute(ctx context.Context) error {
 	}
 	return c.Wait()
 }
+
+//TimeoutExecutor struct
+type TimeoutExecutor struct {
+	timeout time.Duration
+	exec    Executor
+}
+
+//Timeout new
+func Timeout(d time.Duration, exec Executor) *TimeoutExecutor {
+	return &TimeoutExecutor{
+		timeout: d,
+		exec:    exec,
+	}
+}
+
+//Execute implement Executor
+func (tm *TimeoutExecutor) Execute(ctx context.Context) error {
+	tmCtx, cancel := context.WithTimeout(ctx, tm.timeout)
+	defer cancel()
+	ch := Go(tmCtx, tm.exec)
+	return <-ch
+}
+
+//DeadlineExecutor struct
+type DeadlineExecutor struct {
+	deadline time.Time
+	exec     Executor
+}
+
+//Deadline new
+func Deadline(d time.Time, exec Executor) *DeadlineExecutor {
+	return &DeadlineExecutor{
+		deadline: d,
+		exec:     exec,
+	}
+}
+
+//Execute implement Executor
+func (tm *DeadlineExecutor) Execute(ctx context.Context) error {
+	tmCtx, cancel := context.WithDeadline(ctx, tm.deadline)
+	defer cancel()
+	ch := Go(tmCtx, tm.exec)
+	return <-ch
+}

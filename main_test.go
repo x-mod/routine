@@ -2,10 +2,11 @@ package routine
 
 import (
 	"context"
-	"errors"
 	"log"
 	"testing"
 	"time"
+
+	"github.com/x-mod/errors"
 )
 
 func TestRun(t *testing.T) {
@@ -42,6 +43,12 @@ func TestRun(t *testing.T) {
 
 		ch5 := Go(ctx, Repeat(3, time.Second, Command("echo", "hello", "routine")))
 		log.Println("Go5 result: ", <-ch5)
+
+		ch6 := Go(ctx, Timeout(3*time.Second, Command("sleep", "6")))
+		log.Println("Go6 timeout result: ", <-ch6)
+
+		ch7 := Go(ctx, Deadline(time.Now().Add(time.Second), Command("sleep", "6")))
+		log.Println("Go7 deadline result: ", <-ch7)
 
 		log.Println("main executing end")
 		return nil
