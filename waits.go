@@ -18,9 +18,9 @@ func WithWait(ctx context.Context) context.Context {
 // WaitAdd if context with sync.WaitGroup, wait.Add
 func WaitAdd(ctx context.Context, delta int) {
 	if ctx != nil {
-		wait := ctx.Value(_wait{}).(*sync.WaitGroup)
+		wait := ctx.Value(_wait{})
 		if wait != nil {
-			wait.Add(delta)
+			wait.(*sync.WaitGroup).Add(delta)
 		}
 	}
 }
@@ -28,19 +28,19 @@ func WaitAdd(ctx context.Context, delta int) {
 // WaitDone if context with sync.WaitGroup, wait.Done
 func WaitDone(ctx context.Context) {
 	if ctx != nil {
-		wait := ctx.Value(_wait{}).(*sync.WaitGroup)
+		wait := ctx.Value(_wait{})
 		if wait != nil {
-			wait.Done()
+			wait.(*sync.WaitGroup).Done()
 		}
 	}
 }
 
-// Wait if context with sync.WaitGroup, wait.Wait for all undone
+// Wait should be invoked when Executor implemention use Go
 func Wait(ctx context.Context) {
 	if ctx != nil {
-		wait := ctx.Value(_wait{}).(*sync.WaitGroup)
+		wait := ctx.Value(_wait{})
 		if wait != nil {
-			wait.Wait()
+			wait.(*sync.WaitGroup).Wait()
 		}
 	}
 }

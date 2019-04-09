@@ -47,13 +47,24 @@ func TestRun(t *testing.T) {
 		ch6 := Go(ctx, Timeout(3*time.Second, Command("sleep", "6")))
 		log.Println("Go6 timeout result: ", <-ch6)
 
+		// return Timeout(3*time.Second, Command("sleep", "6")).Execute(ctx)
+		// log.Println("Go6 timeout result: ", err)
 		ch7 := Go(ctx, Deadline(time.Now().Add(time.Second), Command("sleep", "6")))
 		log.Println("Go7 deadline result: ", <-ch7)
 
-		Go(ctx, Concurrent(20, Command("echo", "hello")))
+		Go(ctx, Concurrent(20, ExecutorFunc(func(arg1 context.Context) error {
+			log.Println("Go8 concurrent begin ...", FromConcurrent(arg1))
+			log.Println("Go8 concurrent end")
+			return nil
+		})))
+
+		report := make(chan *Result, 3)
+		Go(ctx, Repeat(3, time.Second, Report(report, Command("echo", "hello", "xxxroutine"))))
 
 		log.Println("main executing end")
+		// Wait(ctx)
 		return nil
-	}), DefaultCancelInterruptors...)
+	}), Interrupts(DefaultCancelInterruptors...))
+
 	log.Println("main exit: ", err)
 }

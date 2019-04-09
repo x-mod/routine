@@ -17,6 +17,7 @@ var (
 
 //Executor interface definition
 type Executor interface {
+	//Execute before stopping make sure all subroutines stopped
 	Execute(context.Context) error
 }
 

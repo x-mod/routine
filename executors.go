@@ -2,8 +2,12 @@ package routine
 
 import (
 	"context"
+	"io"
+	"io/ioutil"
 	"os/exec"
 	"time"
+
+	"github.com/x-mod/errors"
 
 	"github.com/gorhill/cronexpr"
 )
@@ -227,8 +231,7 @@ func Timeout(d time.Duration, exec Executor) Executor {
 func (tm *TimeoutExecutor) Execute(ctx context.Context) error {
 	tmCtx, cancel := context.WithTimeout(ctx, tm.timeout)
 	defer cancel()
-	ch := Go(tmCtx, tm.exec)
-	return <-ch
+	return <-Go(tmCtx, tm.exec)
 }
 
 //DeadlineExecutor struct
@@ -249,14 +252,26 @@ func Deadline(d time.Time, exec Executor) Executor {
 func (tm *DeadlineExecutor) Execute(ctx context.Context) error {
 	tmCtx, cancel := context.WithDeadline(ctx, tm.deadline)
 	defer cancel()
-	ch := Go(tmCtx, tm.exec)
-	return <-ch
+	return <-Go(tmCtx, tm.exec)
 }
 
 //ConcurrentExecutor struct
 type ConcurrentExecutor struct {
 	concurrent int
 	exec       Executor
+}
+
+type _concurrent struct{}
+
+//FromConcurrent current num
+func FromConcurrent(ctx context.Context) int {
+	if ctx != nil {
+		concurrent := ctx.Value(_concurrent{})
+		if concurrent != nil {
+			return concurrent.(int)
+		}
+	}
+	return 0
 }
 
 //Concurrent new
@@ -269,8 +284,55 @@ func Concurrent(c int, exec Executor) Executor {
 
 //Execute implement Executor
 func (ce *ConcurrentExecutor) Execute(ctx context.Context) error {
+	wctx := WithWait(ctx)
 	for i := 0; i < ce.concurrent; i++ {
-		Go(ctx, Guarantee(ce.exec))
+		Go(context.WithValue(wctx, _concurrent{}, i), ce.exec)
 	}
+	Wait(wctx)
 	return nil
+}
+
+//ReportExecutor struct
+type ReportExecutor struct {
+	result chan *Result
+	exec   Executor
+	rdCnt  io.Reader
+	wrCnt  io.Writer
+}
+
+//Result struct
+type Result struct {
+	Err           error
+	Code          int
+	Begin         time.Time
+	Duration      time.Duration
+	ContentLength int
+}
+
+//Report new
+func Report(ch chan *Result, exec Executor) Executor {
+	return &ReportExecutor{
+		result: ch,
+		exec:   exec,
+	}
+}
+
+//Execute implement Executor
+func (re *ReportExecutor) Execute(ctx context.Context) error {
+	defer func() {
+		if rc := recover(); rc != nil {
+			Warn(ctx, "report executor recovered: ", rc)
+		}
+	}()
+	begin := time.Now()
+	re.wrCnt = NewWriteCounter(ioutil.Discard)
+	err := <-Go(WithStdout(ctx, re.wrCnt), re.exec)
+	re.result <- &Result{
+		Err:           err,
+		Code:          errors.ValueFrom(err),
+		Begin:         begin,
+		Duration:      time.Since(begin),
+		ContentLength: re.wrCnt.(*WriteCounter).Count(),
+	}
+	return err
 }

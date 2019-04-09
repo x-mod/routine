@@ -4,61 +4,59 @@ import (
 	"context"
 	"os"
 	"os/signal"
-	"runtime"
 	"syscall"
-	"time"
 
 	"github.com/x-mod/errors"
 )
 
 //Main wrapper for executor with waits & signal interuptors
-func Main(parent context.Context, exec Executor, interruptors ...Interruptor) error {
+func Main(parent context.Context, exec Executor, opts ...Opt) error {
+	moptions := &options{}
+	for _, opt := range opts {
+		opt(moptions)
+	}
 	// context with cancel & wait
-	ctx, cancel := context.WithCancel(WithWait(parent))
+	ctx, cancel := context.WithCancel(parent)
 	defer cancel()
+	// argments
+	if len(moptions.args) > 0 {
+		ctx = WithArgments(ctx, moptions.args...)
+	}
 	// signals
 	sigchan := make(chan os.Signal)
 	sighandlers := make(map[os.Signal]InterruptHandler)
-	for _, interruptor := range interruptors {
+	for _, interruptor := range moptions.interrupts {
 		signal.Notify(sigchan, interruptor.Signal())
 		sighandlers[interruptor.Signal()] = interruptor.Interrupt()
 	}
-
-	ch := make(chan error)
-	go func() {
-		//main executing
-		if err := exec.Execute(ctx); err != nil {
-			ch <- err
-			return
-		}
-
-		//time after a short time interval, reschedule to subroutines
-		<-time.After(50 * time.Millisecond)
-
-		//waiting for subroutines finishing
-		Wait(ctx)
-		close(ch)
-	}()
-
+	// main executor
+	ch := Go(ctx, exec)
 	// main exit for sig & finished
+	exitCh := make(chan error, 1)
 	for {
 		select {
 		case sig := <-sigchan:
 			// cancel when a signal catched
 			if h, ok := sighandlers[sig]; ok {
 				if h(ctx) {
-					return errors.CodeError(SignalCode(sig.(syscall.Signal)))
+					exitCh <- errors.CodeError(SignalCode(sig.(syscall.Signal)))
+					goto Exit
 				}
 			}
 		case <-ctx.Done():
-			return errors.WithCode(ctx.Err(), GeneralErr)
-		case err, ok := <-ch:
-			if !ok {
-				return nil
-			}
-			return errors.WithCode(err, GeneralErr)
+			exitCh <- errors.WithCode(ctx.Err(), GeneralErr)
+			goto Exit
+		case err := <-ch:
+			exitCh <- err
+			goto Exit
 		}
 	}
+Exit:
+	//exit hook
+	if moptions.beforeExit != nil {
+		moptions.beforeExit.Execute(ctx)
+	}
+	return <-exitCh
 }
 
 //Go wrapper for go keyword, use in MAIN function
@@ -72,9 +70,8 @@ func Go(ctx context.Context, exec Executor) chan error {
 		ch <- ErrNoneContext
 		return ch
 	}
-
+	WaitAdd(ctx, 1)
 	go func() {
-		WaitAdd(ctx, 1)
 		defer WaitDone(ctx)
 
 		// channel for function (run) done
@@ -83,8 +80,6 @@ func Go(ctx context.Context, exec Executor) chan error {
 			ch <- exec.Execute(ctx)
 			close(stop)
 		}()
-
-		runtime.Gosched()
 		// run exit for cancel & finished
 		select {
 		case <-ctx.Done():
@@ -93,4 +88,36 @@ func Go(ctx context.Context, exec Executor) chan error {
 		}
 	}()
 	return ch
+}
+
+type options struct {
+	args          []interface{}
+	interrupts    []Interruptor
+	beforeExecute Executor
+	afterExecute  Executor
+	beforeExit    Executor
+}
+
+//Opt interface
+type Opt func(*options)
+
+//Arguments Opt for Main
+func Arguments(args ...interface{}) Opt {
+	return func(opts *options) {
+		opts.args = args
+	}
+}
+
+//Interrupt Opt for Main
+func Interrupts(ints ...Interruptor) Opt {
+	return func(opts *options) {
+		opts.interrupts = append(opts.interrupts, ints...)
+	}
+}
+
+//BeforeExit Opt for Main
+func BeforeExit(exec Executor) Opt {
+	return func(opts *options) {
+		opts.beforeExit = exec
+	}
 }
