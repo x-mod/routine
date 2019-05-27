@@ -17,24 +17,27 @@ type GuaranteeExecutor struct {
 	exec Executor
 }
 
-//Guarantee new
+//Guarantee insure exec NEVER PANIC
 func Guarantee(exec Executor) Executor {
 	return &GuaranteeExecutor{exec}
 }
 
 //Execute implement Executor interface
-func (g *GuaranteeExecutor) Execute(ctx context.Context) error {
-	func() {
-		defer func() {
-			if rc := recover(); rc != nil {
-				Warn(ctx, "guarantee executor recovered: ", rc)
+func (g *GuaranteeExecutor) Execute(ctx context.Context) (err error) {
+	defer func() {
+		if rc := recover(); rc != nil {
+			switch rv := rc.(type) {
+			case error:
+				err = rv.(error)
+				return
+			default:
+				err = errors.Errorf("%v", rv)
+				return
 			}
-		}()
-		if err := g.exec.Execute(ctx); err != nil {
-			Error(ctx, "guarantee executor failed: ", err)
 		}
 	}()
-	return nil
+	err = g.exec.Execute(ctx)
+	return
 }
 
 //RetryExecutor struct
@@ -202,10 +205,10 @@ func Command(cmd string, args ...string) Executor {
 //Execute implement Executor
 func (cmd *CommandExecutor) Execute(ctx context.Context) error {
 	c := exec.CommandContext(ctx, cmd.command, cmd.args...)
-	c.Stdin = FromStdin(ctx)
-	c.Stdout = FromStdout(ctx)
-	c.Stderr = FromStderr(ctx)
-	c.Env = FromEnviron(ctx)
+	c.Stdin = StdinFrom(ctx)
+	c.Stdout = StdoutFrom(ctx)
+	c.Stderr = StderrFrom(ctx)
+	c.Env = EnvironFrom(ctx)
 	if err := c.Start(); err != nil {
 		Error(ctx, cmd.command, cmd.args, " failed: ", err)
 		return err
@@ -284,11 +287,13 @@ func Concurrent(c int, exec Executor) Executor {
 
 //Execute implement Executor
 func (ce *ConcurrentExecutor) Execute(ctx context.Context) error {
+	//context with self wait
 	wctx := WithWait(ctx)
 	for i := 0; i < ce.concurrent; i++ {
 		Go(context.WithValue(wctx, _concurrent{}, i), ce.exec)
 	}
 	Wait(wctx)
+	//concurrent always succeed
 	return nil
 }
 
@@ -313,26 +318,21 @@ type Result struct {
 func Report(ch chan *Result, exec Executor) Executor {
 	return &ReportExecutor{
 		result: ch,
-		exec:   exec,
+		exec:   Guarantee(exec), //Never PANIC
 	}
 }
 
 //Execute implement Executor
 func (re *ReportExecutor) Execute(ctx context.Context) error {
-	defer func() {
-		if rc := recover(); rc != nil {
-			Warn(ctx, "report executor recovered: ", rc)
-		}
-	}()
 	begin := time.Now()
-	re.wrCnt = NewWriteCounter(ioutil.Discard)
+	re.wrCnt = NewCountWriter(ioutil.Discard)
 	err := re.exec.Execute(WithStdout(ctx, re.wrCnt))
 	re.result <- &Result{
 		Err:           err,
 		Code:          errors.ValueFrom(err),
 		Begin:         begin,
 		Duration:      time.Since(begin),
-		ContentLength: re.wrCnt.(*WriteCounter).Count(),
+		ContentLength: re.wrCnt.(*CountWriter).Count(),
 	}
 	//report always succeed
 	return nil

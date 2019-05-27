@@ -14,11 +14,15 @@ func TestExecutor_Execute(t *testing.T) {
 	assert.Nil(t, Guarantee(ExecutorFunc(func(context.Context) error {
 		return nil
 	})).Execute(context.TODO()))
-	assert.Nil(t, Guarantee(ExecutorFunc(func(context.Context) error {
+	assert.NotNil(t, Guarantee(ExecutorFunc(func(context.Context) error {
 		return errors.New("err")
 	})).Execute(context.TODO()))
-	assert.Nil(t, Guarantee(ExecutorFunc(func(context.Context) error {
+	assert.NotNil(t, Guarantee(ExecutorFunc(func(context.Context) error {
 		panic("panic")
+		return nil
+	})).Execute(context.TODO()))
+	assert.NotNil(t, Guarantee(ExecutorFunc(func(context.Context) error {
+		panic(errors.New("panic error"))
 		return nil
 	})).Execute(context.TODO()))
 
@@ -29,13 +33,22 @@ func TestExecutor_Execute(t *testing.T) {
 
 	//Repeat
 	assert.Equal(t, nil, Repeat(3, 10*time.Millisecond, ExecutorFunc(func(ctx context.Context) error {
+		Info(ctx, FromRepeat(ctx))
 		return nil
 	})).Execute(context.TODO()))
 
 	//Concurrent
 	assert.Equal(t, nil, Concurrent(3, ExecutorFunc(func(ctx context.Context) error {
+		Info(ctx, FromConcurrent(ctx))
 		return nil
 	})).Execute(context.TODO()))
+
+	//Crontab
+	timeoutCtx, cancel := context.WithTimeout(context.TODO(), time.Millisecond*100)
+	defer cancel()
+	assert.NotNil(t, Crontab("* * * * *", ExecutorFunc(func(ctx context.Context) error {
+		return nil
+	})).Execute(timeoutCtx))
 
 	//Command
 	assert.Equal(t, nil, Command("echo", "hello").Execute(context.TODO()))
@@ -59,4 +72,13 @@ func TestExecutor_Execute(t *testing.T) {
 		time.Sleep(15 * time.Millisecond)
 		return nil
 	})).Execute(context.TODO()))
+
+	//Report
+	res1 := make(chan *Result, 1)
+	assert.Nil(t, Report(res1, ExecutorFunc(func(context.Context) error {
+		return errors.New("err")
+	})).Execute(context.TODO()))
+	r1 := <-res1
+	assert.NotNil(t, r1.Err)
+
 }

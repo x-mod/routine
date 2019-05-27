@@ -1,73 +1,144 @@
 routine
 ===
 
-job routine for golang program with the following strategies:
+go routine control with context, support: Main, GO, Pool and some useful Executors.
 
-- retry
-- repeat
-- crontab
-- guarantee
+## Why we need control go routine?
 
-more details at the quick start.
+The keyword `go` will create a go routine for the function, but if you want to control the routine, it need more work to do, like:
+
+- manage the go routine object
+- signal to the running go routine to stop 
+- waiting for signals when go routine died
+
+these works are really boring, that's why we need control go routine.
+
+## How to control go routine?
+
+use an `Executor` interface, which user `context.Context` to control the go routine. According to the go routines level, you can use the following entry function help you to control the go routine.
+
+- **Main**, encapsulates default signal handlers, process level waiting for go routines, and with prepare & cleanup options
+- **Go**, wrapper for the `go`. You should use it in the `Main` scope.	
+- **Pool**, the simplest go routine pool which implement `Routine` interface
 
 ## Quick Start
 
+## `Main` function
+
+the `Main` function encapsulates default signal handlers, process level waiting for go routines, and with prepare & cleanup options
+
 ````go
 
-import (
-	"context"
-	"errors"
-	"log"
-    "time"
-    
-    "github.com/x-mod/routine"
-)
+import "github.com/x-mod/routine"
 
-func main(){
-	err := routine.Main(context.TODO(), routine.ExecutorFunc(func(ctx context.Context) error {
-		log.Println("main executing begin ...")
-
-		ch1 := routine.Go(ctx, routine.Retry(3, routine.ExecutorFunc(func(arg1 context.Context) error {
-			log.Println("Go1 retry begin ...", routine.FromRetry(arg1))
-			time.Sleep(1 * time.Second)
-			log.Println("Go1 retry end")
-			return errors.New("Go1 error")
-		})))
-		log.Println("Go1 result: ", <-ch1)
-
-		ch2 := routine.Go(ctx, routine.Repeat(2, time.Second, routine.ExecutorFunc(func(arg1 context.Context) error {
-			log.Println("Go2 repeat begin ...", routine.FromRepeat(arg1))
-			time.Sleep(2 * time.Second)
-			log.Println("Go2 repeat end")
-			return nil
-		})))
-		log.Println("Go2 result: ", <-ch2)
-
-		routine.Go(ctx, routine.Repeat(2, time.Second, routine.Guarantee(routine.ExecutorFunc(func(arg1 context.Context) error {
-			log.Println("Go4 repeat guarantee begin ...")
-			log.Println("Go4 repeat guarantee end")
-			return errors.New("Go4 failed")
-		}))))
-
-		routine.Go(ctx, Crontab("* * * * *", routine.ExecutorFunc(func(arg1 context.Context) error {
-			log.Println("Go3 crontab begin ...", routine.FromCrontab(arg1))
-			log.Println("Go3 crontab end")
-			return nil
-		})))
-
-		ch5 := routine.Go(ctx, Repeat(3, time.Second, routine.Command("echo", "hello", "routine")))
-		log.Println("Go5 result: ", <-ch5)
-
-		ch6 := routine.Go(ctx, routine.Timeout(3*time.Second, Command("sleep", "6")))
-		log.Println("Go6 timeout result: ", <-ch6)
-
-		ch7 := routine.Go(ctx, routine.Deadline(time.Now().Add(time.Second), Command("sleep", "6")))
-		log.Println("Go7 deadline result: ", <-ch7)
-
-		log.Println("main executing end")
+func main() {
+	err := routine.Main(routine.ExecutorFunc(func(ctx context.Context) error {
+		//TODO your code here
 		return nil
-	}), routine.DefaultCancelInterruptors...)
-	log.Println("main exit: ", err)
+	}))
+	//...
 }
 
+````
+
+## `Go` function
+
+the `Go` function is the wrapper of the golang's keyword `go`， when you use the `Go` function, it act the same like keywork `go`, but with inside context controling.
+
+````go
+
+import "github.com/x-mod/routine"
+
+func main() {
+	err := routine.Main(routine.ExecutorFunc(func(ctx context.Context) error {
+		//ignore the result error
+		routine.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+			//go routine 1 ...
+			return nil
+		}))
+
+		//get the result error
+		err := <-routine.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+			//go routine 2 ...
+			return nil
+		}))
+		return nil
+	}))
+	//...
+}
+
+````
+
+## `Pool` routines
+
+````go
+
+import "github.com/x-mod/routine"
+
+func main() {
+	//create a pool
+	pool := routine.NewPool(routine.NumOfRoutines(4))
+	defer pool.Close()
+	
+	err := routine.Main(routine.ExecutorFunc(func(ctx context.Context) error {	
+		//ignore the result error
+		pool.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+			//go routine 1 ...
+			return nil
+		}))
+
+		//get the result error
+		err := <-pool.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+			//go routine 2 ...
+			return nil
+		}))
+		return nil
+	}))
+	//...
+}
+````
+
+## Executors
+
+provide some useful executors, like:
+
+- retry, retry your executor when failed
+- repeat, repeat your executor
+- crontab, schedule your executor
+- guarantee, make sure your executor never panic
+
+and so on.
+
+````go
+
+import "github.com/x-mod/routine"
+
+func main() {
+	
+	err := routine.Main(routine.ExecutorFunc(func(ctx context.Context) error {	
+		//retry
+		routine.Go(ctx, routine.Retry(3, routine.ExecutorFunc(func(ctx context.Context) error {
+			//go routine 1 ...
+			return nil
+		})))
+
+		//guarantee
+		routine.Go(ctx, routine.Guarantee(3, routine.ExecutorFunc(func(ctx context.Context) error {
+			panic("panic")
+			return nil
+		})))
+
+		//concurrent
+		routine.Go(ctx, routine.Concurrent(10, routine.ExecutorFunc(func(ctx context.Context) error {
+			return nil
+		})))
+	
+		//timeout
+		routine.Go(ctx, routine.Timeout(time.Second, routine.ExecutorFunc(func(ctx context.Context) error {
+			return nil
+		})))
+		return nil
+	}))
+	//...
+}
 ````

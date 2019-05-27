@@ -10,15 +10,14 @@ import (
 )
 
 //Main wrapper for executor with waits & signal interuptors
-func Main(parent context.Context, exec Executor, opts ...Opt) error {
-	moptions := &options{}
+func Main(exec Executor, opts ...Opt) error {
+	moptions := &options{
+		ctx: context.TODO(),
+	}
 	for _, opt := range opts {
 		opt(moptions)
 	}
-	//init parent context
-	if parent == nil {
-		parent = context.TODO()
-	}
+	parent := moptions.ctx
 	//prepare
 	if moptions.prepareExec != nil {
 		if err := moptions.prepareExec.Execute(parent); err != nil {
@@ -109,6 +108,7 @@ func Go(ctx context.Context, exec Executor) chan error {
 }
 
 type options struct {
+	ctx         context.Context
 	args        []interface{}
 	interrupts  []Interruptor
 	prepareExec Executor
@@ -117,6 +117,15 @@ type options struct {
 
 //Opt interface
 type Opt func(*options)
+
+//Context Opt
+func Context(ctx context.Context) Opt {
+	return func(opts *options) {
+		if ctx != nil {
+			opts.ctx = ctx
+		}
+	}
+}
 
 //Arguments Opt for Main
 func Arguments(args ...interface{}) Opt {

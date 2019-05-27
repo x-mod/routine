@@ -4,40 +4,48 @@ import (
 	"io"
 )
 
-type ReadCounter struct {
+//CountReader count io reader
+type CountReader struct {
 	cnt int
 	rd  io.Reader
 }
 
-type WriteCounter struct {
+//CountWriter count io writer
+type CountWriter struct {
 	cnt int
 	wr  io.Writer
 }
 
-func NewReadCounter(rd io.Reader) io.Reader {
-	return &ReadCounter{rd: rd}
+//NewCountReader  new
+func NewCountReader(rd io.Reader) *CountReader {
+	return &CountReader{rd: rd}
 }
 
-func (rc *ReadCounter) Read(p []byte) (int, error) {
+//Read impl
+func (rc *CountReader) Read(p []byte) (int, error) {
 	cnt, err := rc.rd.Read(p)
 	rc.cnt += cnt
 	return cnt, err
 }
 
-func (rc *ReadCounter) Count() int {
+//Count get count
+func (rc *CountReader) Count() int {
 	return rc.cnt
 }
 
-func NewWriteCounter(wr io.Writer) io.Writer {
-	return &WriteCounter{wr: wr}
+//NewCountWriter new
+func NewCountWriter(wr io.Writer) *CountWriter {
+	return &CountWriter{wr: wr}
 }
 
-func (wc *WriteCounter) Write(p []byte) (int, error) {
+//Write impl
+func (wc *CountWriter) Write(p []byte) (int, error) {
 	cnt, err := wc.wr.Write(p)
 	wc.cnt += cnt
 	return cnt, err
 }
 
-func (wc *WriteCounter) Count() int {
+//Count get count
+func (wc *CountWriter) Count() int {
 	return wc.cnt
 }

@@ -14,18 +14,18 @@ func WithArgments(ctx context.Context, args ...interface{}) context.Context {
 	if ctx != nil {
 		return context.WithValue(ctx, _argments{}, args)
 	}
-	return context.WithValue(context.TODO(), _argments{}, args)
+	return nil
 }
 
-//FromArguments extract from context
-func FromArguments(ctx context.Context) []interface{} {
+//ArgumentsFrom extract from context
+func ArgumentsFrom(ctx context.Context) ([]interface{}, bool) {
 	if ctx != nil {
 		argments := ctx.Value(_argments{})
 		if argments != nil {
-			return argments.([]interface{})
+			return argments.([]interface{}), true
 		}
 	}
-	return []interface{}{}
+	return nil, false
 }
 
 type _stdin struct{}
@@ -41,8 +41,8 @@ func WithStdin(ctx context.Context, in io.Reader) context.Context {
 	return context.WithValue(context.TODO(), _stdin{}, in)
 }
 
-//FromStdin get stdin
-func FromStdin(ctx context.Context) io.Reader {
+//StdinFrom get stdin
+func StdinFrom(ctx context.Context) io.Reader {
 	if ctx != nil {
 		stdin := ctx.Value(_stdin{})
 		if stdin != nil {
@@ -60,8 +60,8 @@ func WithStdout(ctx context.Context, out io.Writer) context.Context {
 	return context.WithValue(context.TODO(), _stdout{}, out)
 }
 
-//FromStdout get stdout
-func FromStdout(ctx context.Context) io.Writer {
+//StdoutFrom get stdout
+func StdoutFrom(ctx context.Context) io.Writer {
 	if ctx != nil {
 		stdout := ctx.Value(_stdout{})
 		if stdout != nil {
@@ -79,8 +79,8 @@ func WithStderr(ctx context.Context, out io.Writer) context.Context {
 	return context.WithValue(context.TODO(), _stderr{}, out)
 }
 
-//FromStderr get stderr
-func FromStderr(ctx context.Context) io.Writer {
+//StderrFrom get stderr
+func StderrFrom(ctx context.Context) io.Writer {
 	if ctx != nil {
 		stderr := ctx.Value(_stderr{})
 		if stderr != nil {
@@ -92,7 +92,7 @@ func FromStderr(ctx context.Context) io.Writer {
 
 //WithEnviron set env
 func WithEnviron(ctx context.Context, key string, value string) context.Context {
-	envs := FromEnviron(ctx)
+	envs := EnvironFrom(ctx)
 	envs = append(envs, strings.Join([]string{key, value}, "="))
 	if ctx != nil {
 		return context.WithValue(ctx, _env{}, envs)
@@ -100,8 +100,8 @@ func WithEnviron(ctx context.Context, key string, value string) context.Context 
 	return context.WithValue(context.TODO(), _env{}, envs)
 }
 
-//FromEnviron get env
-func FromEnviron(ctx context.Context) []string {
+//EnvironFrom get env
+func EnvironFrom(ctx context.Context) []string {
 	if ctx != nil {
 		env := ctx.Value(_env{})
 		if env != nil {

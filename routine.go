@@ -51,7 +51,7 @@ type Routine interface {
 //GoFunc definition
 type GoFunc func(context.Context, Executor) chan error
 
-//Go RunnerFunc implemention of Runner
+//Go GoFunc implemention of Routine
 func (f GoFunc) Go(ctx context.Context, exec Executor) chan error {
 	return f(ctx, exec)
 }
