@@ -1,7 +1,8 @@
 routine
 ===
+[![GoDoc](https://godoc.org/github.com/x-mod/routine?status.svg)](https://godoc.org/github.com/x-mod/routine) [![Go Report Card](https://goreportcard.com/badge/github.com/x-mod/routine)](https://goreportcard.com/report/github.com/x-mod/routine) [![Build Status](https://travis-ci.org/x-mod/routine.svg?branch=master)](https://travis-ci.org/x-mod/routine) [![Version](https://img.shields.io/github/tag/x-mod/routine.svg)](https://github.com/x-mod/routine/releases) [![Coverage Status](https://coveralls.io/repos/github/x-mod/routine/badge.svg?branch=master)](https://coveralls.io/github/x-mod/routine?branch=master)
 
-go routine control with context, support: Main, GO, Pool and some useful Executors.
+go routine control with context, support: Main, Go, Pool and some useful Executors.
 
 ## Why we need control go routine?
 
