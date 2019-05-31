@@ -90,6 +90,7 @@ func (p *Pool) exec(ctx context.Context) error {
 		case <-p.close: //clear of requests
 			for r := range p.reqs {
 				r.ch <- errors.New("pool closed")
+				WaitDone(r.ctx)
 			}
 			return nil
 		case r := <-p.reqs:
@@ -102,9 +103,9 @@ func (p *Pool) exec(ctx context.Context) error {
 			default:
 				r.ch <- r.exec.Execute(r.ctx)
 			}
+			WaitDone(r.ctx)
 		}
 	}
-	return nil
 }
 
 //Go impl routine interface
@@ -112,7 +113,7 @@ func (p *Pool) Go(ctx context.Context, exec Executor) chan error {
 	//open pool if not
 	p.Open(nil)
 	//req
-	ch := make(chan error, 1)
+	ch := make(chan error, 2)
 	if exec == nil {
 		ch <- errors.New("Executor required")
 		return ch
@@ -130,6 +131,7 @@ func (p *Pool) Go(ctx context.Context, exec Executor) chan error {
 			req.ctx = ctx
 		}
 		p.reqs <- req
+		WaitAdd(req.ctx, 1)
 	}
 	return ch
 }

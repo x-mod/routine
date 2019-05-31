@@ -28,6 +28,27 @@ func ArgumentsFrom(ctx context.Context) ([]interface{}, bool) {
 	return nil, false
 }
 
+type _routine struct{}
+
+//WithRoutine inject into context
+func WithRoutine(ctx context.Context, routine Routine) context.Context {
+	if ctx != nil {
+		return context.WithValue(ctx, _routine{}, routine)
+	}
+	return nil
+}
+
+//RoutineFrom extract from context
+func RoutineFrom(ctx context.Context) (Routine, bool) {
+	if ctx != nil {
+		argments := ctx.Value(_routine{})
+		if argments != nil {
+			return argments.(Routine), true
+		}
+	}
+	return nil, false
+}
+
 type _stdin struct{}
 type _stdout struct{}
 type _stderr struct{}

@@ -18,6 +18,10 @@ func Main(exec Executor, opts ...Opt) error {
 		opt(moptions)
 	}
 	parent := moptions.ctx
+	//routine pool
+	if moptions.pool != nil {
+		parent = WithRoutine(parent, moptions.pool)
+	}
 	//prepare
 	if moptions.prepareExec != nil {
 		if err := moptions.prepareExec.Execute(parent); err != nil {
@@ -64,6 +68,10 @@ func Main(exec Executor, opts ...Opt) error {
 		}
 	}
 Exit:
+	//close running routines
+	if moptions.pool != nil {
+		moptions.pool.Close()
+	}
 	//wait main context subroutines
 	Wait(ctx)
 	//cleanup
@@ -86,6 +94,10 @@ func Go(ctx context.Context, exec Executor) chan error {
 	if ctx == nil {
 		ch <- ErrNoneContext
 		return ch
+	}
+	//use context routine pool
+	if rs, ok := RoutineFrom(ctx); ok {
+		return rs.Go(ctx, exec)
 	}
 	WaitAdd(ctx, 2)
 	go func() {
@@ -111,6 +123,7 @@ type options struct {
 	ctx         context.Context
 	args        []interface{}
 	interrupts  []Interruptor
+	pool        *Pool
 	prepareExec Executor
 	cleanupExec Executor
 }
@@ -138,6 +151,13 @@ func Arguments(args ...interface{}) Opt {
 func Interrupts(ints ...Interruptor) Opt {
 	return func(opts *options) {
 		opts.interrupts = append(opts.interrupts, ints...)
+	}
+}
+
+//WithPool Opt for Main
+func WithPool(p *Pool) Opt {
+	return func(opts *options) {
+		opts.pool = p
 	}
 }
 

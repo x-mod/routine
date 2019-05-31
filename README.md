@@ -36,7 +36,12 @@ func main() {
 	err := routine.Main(routine.ExecutorFunc(func(ctx context.Context) error {
 		//TODO your code here
 		return nil
-	}))
+	}),
+		//options for the Main
+		routine.Context(...),
+		routine.Arguments(...),
+		routine.WithPool(...),	
+	)
 	//...
 }
 
@@ -72,29 +77,27 @@ func main() {
 
 ## `Pool` routines
 
+Use `WithPool` Option for the `Main`, then inside `Go` will automaticlly choose the pool to run the executors
+
 ````go
 
 import "github.com/x-mod/routine"
 
 func main() {
-	//create a pool
-	pool := routine.NewPool(routine.NumOfRoutines(4))
-	defer pool.Close()
-	
 	err := routine.Main(routine.ExecutorFunc(func(ctx context.Context) error {	
 		//ignore the result error
-		pool.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+		routine.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
 			//go routine 1 ...
 			return nil
 		}))
 
 		//get the result error
-		err := <-pool.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+		err := <-routine.Go(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
 			//go routine 2 ...
 			return nil
 		}))
 		return nil
-	}))
+	}), WithPool(routine.NewPool(routine.NumOfRoutines(4))))
 	//...
 }
 ````

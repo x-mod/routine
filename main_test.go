@@ -72,6 +72,27 @@ func TestMain(t *testing.T) {
 			true,
 		},
 		{
+			"withPool",
+			args{
+				ExecutorFunc(func(ctx context.Context) error {
+					log.Println("pool main ...")
+					Go(ctx, ExecutorFunc(func(ctx context.Context) error {
+						time.Sleep(time.Millisecond * 300)
+						log.Println("pool inner 1...")
+						return nil
+					}))
+					Go(ctx, ExecutorFunc(func(ctx context.Context) error {
+						time.Sleep(time.Millisecond * 200)
+						log.Println("pool inner 2...")
+						return nil
+					}))
+					return nil
+				}),
+				[]Opt{WithPool(NewPool())},
+			},
+			false,
+		},
+		{
 			"prepare",
 			args{
 				ExecutorFunc(func(ctx context.Context) error {
