@@ -56,7 +56,8 @@ func Main(exec Executor, opts ...Opt) error {
 			if h, ok := sighandlers[sig]; ok {
 				if h(ctx) {
 					cancel()
-					exitCode = SignalCode(sig.(syscall.Signal))
+					exitCh <- errors.CodeError(SignalCode(sig.(syscall.Signal)))
+					goto Exit
 				}
 			}
 		case <-ctx.Done():
@@ -72,14 +73,14 @@ Exit:
 	if moptions.pool != nil {
 		moptions.pool.Close()
 	}
-	//wait main context subroutines
-	Wait(ctx)
 	//cleanup
 	if moptions.cleanupExec != nil {
 		if err := moptions.cleanupExec.Execute(parent); err != nil {
 			return errors.Annotate(err, "routine main cleanup")
 		}
 	}
+	//wait main context subroutines
+	Wait(ctx)
 	return <-exitCh
 }
 
