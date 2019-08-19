@@ -308,7 +308,7 @@ type ReportExecutor struct {
 //Result struct
 type Result struct {
 	Err           error
-	Code          int
+	Code          int32
 	Begin         time.Time
 	Duration      time.Duration
 	ContentLength int
