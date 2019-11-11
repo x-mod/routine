@@ -2,56 +2,144 @@ package routine
 
 import (
 	"context"
+	"log"
+	"os"
+	"os/signal"
+	"sync"
 
 	"github.com/x-mod/errors"
 )
 
-var (
-	//ErrNoneExecutor error
-	ErrNoneExecutor = errors.New("none executor")
-	//ErrNoneContext error
-	ErrNoneContext = errors.New("none context")
-	//ErrNonePlan error
-	ErrNonePlan = errors.New("none plan")
-)
-
-//Executor interface definition
-type Executor interface {
-	//Execute before stopping make sure all subroutines stopped
-	Execute(context.Context) error
+type options struct {
+	args        []interface{}
+	interrupts  []Interruptor
+	prepareExec Executor
+	cleanupExec Executor
 }
 
-//ExecutorFunc definition
-type ExecutorFunc func(context.Context) error
+//Opt interface
+type Opt func(*options)
 
-//Execute ExecutorFunc implemention of Executor
-func (f ExecutorFunc) Execute(ctx context.Context) error {
-	return f(ctx)
-}
-
-// ExecutorMiddleware is a function that middlewares can implement to be
-// able to chain.
-type ExecutorMiddleware func(Executor) Executor
-
-// UseExecutorMiddleware wraps a Executor in one or more middleware.
-func UseExecutorMiddleware(exec Executor, middleware ...ExecutorMiddleware) Executor {
-	// Apply in reverse order.
-	for i := len(middleware) - 1; i >= 0; i-- {
-		m := middleware[i]
-		exec = m(exec)
+//Arguments Opt for Main
+func Arguments(args ...interface{}) Opt {
+	return func(opts *options) {
+		opts.args = args
 	}
-	return exec
 }
 
-//Routine for Executors
-type Routine interface {
-	Go(context.Context, Executor) chan error
+//Interrupts Opt for Main
+func Interrupts(ints ...Interruptor) Opt {
+	return func(opts *options) {
+		opts.interrupts = append(opts.interrupts, ints...)
+	}
 }
 
-//GoFunc definition
-type GoFunc func(context.Context, Executor) chan error
+//Prepare Opt for Main
+func Prepare(exec Executor) Opt {
+	return func(opts *options) {
+		opts.prepareExec = exec
+	}
+}
 
-//Go GoFunc implemention of Routine
-func (f GoFunc) Go(ctx context.Context, exec Executor) chan error {
-	return f(ctx, exec)
+//Cleanup Opt for Main
+func Cleanup(exec Executor) Opt {
+	return func(opts *options) {
+		opts.cleanupExec = exec
+	}
+}
+
+type Routine struct {
+	opts  *options
+	exec  Executor
+	rctx  context.Context
+	stop  chan bool
+	group sync.WaitGroup
+}
+
+func New(exec Executor, opts ...Opt) *Routine {
+	mopts := &options{}
+	for _, opt := range opts {
+		opt(mopts)
+	}
+	return &Routine{
+		opts: mopts,
+		exec: exec,
+	}
+}
+
+func (r *Routine) Execute(ctx context.Context) error {
+	//already running
+	if r.stop != nil {
+		return nil
+	}
+	if ctx == nil {
+		return errors.New("context required")
+	}
+	r.stop = make(chan bool)
+	r.rctx = WithParent(ctx, r)
+	//argments
+	if len(r.opts.args) > 0 {
+		r.rctx = WithArgments(r.rctx, r.opts.args...)
+	}
+	//prepare
+	if r.opts.prepareExec != nil {
+		if err := r.opts.prepareExec.Execute(ctx); err != nil {
+			return errors.Annotate(err, "routine prepare")
+		}
+	}
+	//clearup defer
+	defer func() {
+		if r.opts.cleanupExec != nil {
+			if err := r.opts.cleanupExec.Execute(ctx); err != nil {
+				log.Println("routine clearup failed:", err)
+			}
+		}
+	}()
+
+	// signals
+	sigchan := make(chan os.Signal)
+	sighandlers := make(map[os.Signal]InterruptHandler)
+	for _, interruptor := range r.opts.interrupts {
+		signal.Notify(sigchan, interruptor.Signal())
+		sighandlers[interruptor.Signal()] = interruptor.Interrupt()
+	}
+
+	// executor
+	ch := r.Go(r.rctx, r.exec)
+
+	// signals outside
+	for {
+		select {
+		case err := <-ch:
+			return err
+		case <-r.stop:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		case sig := <-sigchan:
+			// cancel when a signal catched
+			if h, ok := sighandlers[sig]; ok {
+				if h(ctx) {
+					return errors.Errorf("sig %v", sig)
+				}
+			}
+		}
+	}
+}
+
+func (r *Routine) Stop() {
+	if r.stop != nil {
+		close(r.stop)
+		r.stop = nil
+	}
+	r.group.Wait()
+}
+
+func (r *Routine) Go(ctx context.Context, exec Executor) chan error {
+	ch := make(chan error)
+	r.group.Add(1)
+	go func() {
+		ch <- exec.Execute(ctx)
+	}()
+	return ch
 }

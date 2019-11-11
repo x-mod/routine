@@ -2,9 +2,6 @@ package routine
 
 import (
 	"context"
-	"io"
-	"os"
-	"strings"
 )
 
 type _argments struct{}
@@ -28,106 +25,16 @@ func ArgumentsFrom(ctx context.Context) ([]interface{}, bool) {
 	return nil, false
 }
 
-type _routine struct{}
+type _parent_routine struct{}
 
-//WithRoutine inject into context
-func WithRoutine(ctx context.Context, routine Routine) context.Context {
-	if ctx != nil {
-		return context.WithValue(ctx, _routine{}, routine)
-	}
-	return nil
+func WithParent(ctx context.Context, parent *Routine) context.Context {
+	return context.WithValue(ctx, _parent_routine{}, parent)
 }
 
-//RoutineFrom extract from context
-func RoutineFrom(ctx context.Context) (Routine, bool) {
-	if ctx != nil {
-		argments := ctx.Value(_routine{})
-		if argments != nil {
-			return argments.(Routine), true
-		}
+func ParentFrom(ctx context.Context) (*Routine, bool) {
+	parent := ctx.Value(_parent_routine{})
+	if parent != nil {
+		return parent.(*Routine), true
 	}
 	return nil, false
-}
-
-type _stdin struct{}
-type _stdout struct{}
-type _stderr struct{}
-type _env struct{}
-
-//WithStdin set stdin
-func WithStdin(ctx context.Context, in io.Reader) context.Context {
-	if ctx != nil {
-		return context.WithValue(ctx, _stdin{}, in)
-	}
-	return context.WithValue(context.TODO(), _stdin{}, in)
-}
-
-//StdinFrom get stdin
-func StdinFrom(ctx context.Context) io.Reader {
-	if ctx != nil {
-		stdin := ctx.Value(_stdin{})
-		if stdin != nil {
-			return stdin.(io.Reader)
-		}
-	}
-	return os.Stdin
-}
-
-//WithStdout set stdout
-func WithStdout(ctx context.Context, out io.Writer) context.Context {
-	if ctx != nil {
-		return context.WithValue(ctx, _stdout{}, out)
-	}
-	return context.WithValue(context.TODO(), _stdout{}, out)
-}
-
-//StdoutFrom get stdout
-func StdoutFrom(ctx context.Context) io.Writer {
-	if ctx != nil {
-		stdout := ctx.Value(_stdout{})
-		if stdout != nil {
-			return stdout.(io.Writer)
-		}
-	}
-	return os.Stdout
-}
-
-//WithStderr set stderr
-func WithStderr(ctx context.Context, out io.Writer) context.Context {
-	if ctx != nil {
-		return context.WithValue(ctx, _stderr{}, out)
-	}
-	return context.WithValue(context.TODO(), _stderr{}, out)
-}
-
-//StderrFrom get stderr
-func StderrFrom(ctx context.Context) io.Writer {
-	if ctx != nil {
-		stderr := ctx.Value(_stderr{})
-		if stderr != nil {
-			return stderr.(io.Writer)
-		}
-	}
-	return os.Stderr
-}
-
-//WithEnviron set env
-func WithEnviron(ctx context.Context, key string, value string) context.Context {
-	envs := EnvironFrom(ctx)
-	envs = append(envs, strings.Join([]string{key, value}, "="))
-	if ctx != nil {
-		return context.WithValue(ctx, _env{}, envs)
-	}
-	return context.WithValue(context.TODO(), _env{}, envs)
-}
-
-//EnvironFrom get env
-func EnvironFrom(ctx context.Context) []string {
-	if ctx != nil {
-		env := ctx.Value(_env{})
-		if env != nil {
-			return env.([]string)
-		}
-	}
-	return os.Environ()
 }

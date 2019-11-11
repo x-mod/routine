@@ -2,14 +2,13 @@ package routine
 
 import (
 	"context"
-	"io"
-	"io/ioutil"
+	"log"
 	"os/exec"
+	"sync"
 	"time"
 
-	"github.com/x-mod/errors"
-
 	"github.com/gorhill/cronexpr"
+	"github.com/x-mod/errors"
 )
 
 //GuaranteeExecutor struct, make sure of none error return
@@ -125,7 +124,7 @@ func (r *RepeatExecutor) Execute(ctx context.Context) error {
 	if r.repeatTimes > 0 {
 		for i := 0; i < r.repeatTimes; i++ {
 			if err := fn(i + 1); err != nil {
-				Error(ctx, "repeat executor failed: ", i, err)
+				return errors.Annotatef(err, "repeat %d failed:", i)
 			}
 		}
 		return nil
@@ -133,7 +132,7 @@ func (r *RepeatExecutor) Execute(ctx context.Context) error {
 
 	for i := 0; ; i++ {
 		if err := fn(i + 1); err != nil {
-			Error(ctx, "repeat executor failed: ", i, err)
+			return errors.Annotatef(err, "repeat %d failed:", i)
 		}
 	}
 }
@@ -205,12 +204,7 @@ func Command(cmd string, args ...string) Executor {
 //Execute implement Executor
 func (cmd *CommandExecutor) Execute(ctx context.Context) error {
 	c := exec.CommandContext(ctx, cmd.command, cmd.args...)
-	c.Stdin = StdinFrom(ctx)
-	c.Stdout = StdoutFrom(ctx)
-	c.Stderr = StderrFrom(ctx)
-	c.Env = EnvironFrom(ctx)
 	if err := c.Start(); err != nil {
-		Error(ctx, cmd.command, cmd.args, " failed: ", err)
 		return err
 	}
 	return c.Wait()
@@ -230,11 +224,10 @@ func Timeout(d time.Duration, exec Executor) Executor {
 	}
 }
 
-//Execute implement Executor
 func (tm *TimeoutExecutor) Execute(ctx context.Context) error {
 	tmCtx, cancel := context.WithTimeout(ctx, tm.timeout)
 	defer cancel()
-	return <-Go(tmCtx, tm.exec)
+	return New(tm.exec).Execute(tmCtx)
 }
 
 //DeadlineExecutor struct
@@ -255,26 +248,14 @@ func Deadline(d time.Time, exec Executor) Executor {
 func (tm *DeadlineExecutor) Execute(ctx context.Context) error {
 	tmCtx, cancel := context.WithDeadline(ctx, tm.deadline)
 	defer cancel()
-	return <-Go(tmCtx, tm.exec)
+	return New(tm.exec).Execute(tmCtx)
 }
 
 //ConcurrentExecutor struct
 type ConcurrentExecutor struct {
 	concurrent int
 	exec       Executor
-}
-
-type _concurrent struct{}
-
-//FromConcurrent current num
-func FromConcurrent(ctx context.Context) int {
-	if ctx != nil {
-		concurrent := ctx.Value(_concurrent{})
-		if concurrent != nil {
-			return concurrent.(int)
-		}
-	}
-	return 0
+	wg         sync.WaitGroup
 }
 
 //Concurrent new
@@ -287,53 +268,15 @@ func Concurrent(c int, exec Executor) Executor {
 
 //Execute implement Executor
 func (ce *ConcurrentExecutor) Execute(ctx context.Context) error {
-	//context with self wait
-	wctx := WithWait(ctx)
 	for i := 0; i < ce.concurrent; i++ {
-		Go(context.WithValue(wctx, _concurrent{}, i), ce.exec)
+		ce.wg.Add(1)
+		go func(i int) {
+			defer ce.wg.Done()
+			if err := ce.exec.Execute(ctx); err != nil {
+				log.Println("concurrent ", i, " failed:", err)
+			}
+		}(i)
 	}
-	Wait(wctx)
-	//concurrent always succeed
-	return nil
-}
-
-//ReportExecutor struct
-type ReportExecutor struct {
-	result chan *Result
-	exec   Executor
-	rdCnt  io.Reader
-	wrCnt  io.Writer
-}
-
-//Result struct
-type Result struct {
-	Err           error
-	Code          int32
-	Begin         time.Time
-	Duration      time.Duration
-	ContentLength int
-}
-
-//Report new
-func Report(ch chan *Result, exec Executor) Executor {
-	return &ReportExecutor{
-		result: ch,
-		exec:   Guarantee(exec), //Never PANIC
-	}
-}
-
-//Execute implement Executor
-func (re *ReportExecutor) Execute(ctx context.Context) error {
-	begin := time.Now()
-	re.wrCnt = NewCountWriter(ioutil.Discard)
-	err := re.exec.Execute(WithStdout(ctx, re.wrCnt))
-	re.result <- &Result{
-		Err:           err,
-		Code:          errors.ValueFrom(err),
-		Begin:         begin,
-		Duration:      time.Since(begin),
-		ContentLength: re.wrCnt.(*CountWriter).Count(),
-	}
-	//report always succeed
+	ce.wg.Wait()
 	return nil
 }
