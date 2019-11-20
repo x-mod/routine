@@ -280,3 +280,31 @@ func (ce *ConcurrentExecutor) Execute(ctx context.Context) error {
 	ce.wg.Wait()
 	return nil
 }
+
+//ParallelExecutor
+type ParallelExecutor struct {
+	execs []Executor
+	wg    sync.WaitGroup
+}
+
+//Parallel new
+func Parallel(execs ...Executor) Executor {
+	return &ParallelExecutor{
+		execs: execs,
+	}
+}
+
+//Execute implement Executor
+func (pe *ParallelExecutor) Execute(ctx context.Context) error {
+	for i, exec := range pe.execs {
+		pe.wg.Add(1)
+		go func(i int, exec Executor) {
+			defer pe.wg.Done()
+			if err := exec.Execute(ctx); err != nil {
+				log.Println("parallel ", i, " failed:", err)
+			}
+		}(i, exec)
+	}
+	pe.wg.Wait()
+	return nil
+}
