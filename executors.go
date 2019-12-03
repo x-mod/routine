@@ -17,26 +17,32 @@ type GuaranteeExecutor struct {
 }
 
 //Guarantee insure exec NEVER PANIC
-func Guarantee(exec Executor) Executor {
+func Guarantee(exec Executor) *GuaranteeExecutor {
 	return &GuaranteeExecutor{exec}
 }
 
 //Execute implement Executor interface
-func (g *GuaranteeExecutor) Execute(ctx context.Context) (err error) {
-	defer func() {
-		if rc := recover(); rc != nil {
-			switch rv := rc.(type) {
-			case error:
-				err = rv.(error)
-				return
-			default:
-				err = errors.Errorf("%v", rv)
-				return
+func (g *GuaranteeExecutor) Execute(ctx context.Context) error {
+	do := func(ctx context.Context) (err error) {
+		defer func() {
+			if rc := recover(); rc != nil {
+				switch rv := rc.(type) {
+				case error:
+					err = rv.(error)
+					return
+				default:
+					err = errors.Errorf("%v", rv)
+					return
+				}
 			}
-		}
-	}()
-	err = g.exec.Execute(ctx)
-	return
+		}()
+		err = g.exec.Execute(ctx)
+		return
+	}
+	if err := do(ctx); err != nil {
+		log.Println("execute failed:", err)
+	}
+	return nil
 }
 
 //RetryExecutor struct
@@ -59,7 +65,7 @@ func FromRetry(ctx context.Context) int {
 }
 
 //Retry new
-func Retry(retry int, exec Executor) Executor {
+func Retry(retry int, exec Executor) *RetryExecutor {
 	return &RetryExecutor{
 		retryTimes: retry,
 		exec:       exec,
@@ -102,7 +108,7 @@ func FromRepeat(ctx context.Context) int {
 }
 
 //Repeat new
-func Repeat(repeat int, interval time.Duration, exec Executor) Executor {
+func Repeat(repeat int, interval time.Duration, exec Executor) *RepeatExecutor {
 	return &RepeatExecutor{
 		repeatTimes:    repeat,
 		repeatInterval: interval,
@@ -139,8 +145,16 @@ func (r *RepeatExecutor) Execute(ctx context.Context) error {
 
 //CrontabExecutor struct
 type CrontabExecutor struct {
-	plan string
-	exec Executor
+	plan    string
+	workday bool
+	weekend bool
+	mutes   []*CrontabMute
+	exec    Executor
+}
+
+type CrontabMute struct {
+	begin time.Time
+	end   time.Time
 }
 
 type _crontab struct{}
@@ -157,11 +171,47 @@ func FromCrontab(ctx context.Context) time.Time {
 }
 
 //Crontab new
-func Crontab(plan string, exec Executor) Executor {
+func Crontab(plan string, exec Executor) *CrontabExecutor {
 	return &CrontabExecutor{
 		plan: plan,
 		exec: exec,
 	}
+}
+
+func (c *CrontabExecutor) Weekend(flag bool) {
+	c.weekend = flag
+}
+func (c *CrontabExecutor) Workday(flag bool) {
+	c.workday = flag
+}
+func (c *CrontabExecutor) Everyday(flag bool) {
+	if flag {
+		c.weekend = false
+		c.workday = false
+	}
+}
+func (c *CrontabExecutor) Mute(begin time.Time, end time.Time) {
+	m := &CrontabMute{begin: begin, end: end}
+	c.mutes = append(c.mutes, m)
+}
+
+func (c *CrontabExecutor) IsTimeMuted(tm time.Time) bool {
+	for _, m := range c.mutes {
+		if m.begin.Before(tm) && m.end.After(tm) {
+			return true
+		}
+	}
+	switch tm.Weekday() {
+	case time.Sunday, time.Saturday:
+		if c.workday {
+			return true
+		}
+	case time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday:
+		if c.weekend {
+			return true
+		}
+	}
+	return false
 }
 
 //Execute implement Executor
@@ -179,8 +229,10 @@ func (c *CrontabExecutor) Execute(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(next.Sub(time.Now())):
-			if err := c.exec.Execute(context.WithValue(ctx, _crontab{}, next)); err != nil {
-				return err
+			if c.IsTimeMuted(next) == false {
+				if err := c.exec.Execute(context.WithValue(ctx, _crontab{}, next)); err != nil {
+					return err
+				}
 			}
 			next = exp.Next(time.Now())
 			if next.IsZero() {
@@ -197,7 +249,7 @@ type CommandExecutor struct {
 }
 
 //Command new
-func Command(cmd string, args ...string) Executor {
+func Command(cmd string, args ...string) *CommandExecutor {
 	return &CommandExecutor{command: cmd, args: args}
 }
 
@@ -217,7 +269,7 @@ type TimeoutExecutor struct {
 }
 
 //Timeout new
-func Timeout(d time.Duration, exec Executor) Executor {
+func Timeout(d time.Duration, exec Executor) *TimeoutExecutor {
 	return &TimeoutExecutor{
 		timeout: d,
 		exec:    exec,
@@ -237,7 +289,7 @@ type DeadlineExecutor struct {
 }
 
 //Deadline new
-func Deadline(d time.Time, exec Executor) Executor {
+func Deadline(d time.Time, exec Executor) *DeadlineExecutor {
 	return &DeadlineExecutor{
 		deadline: d,
 		exec:     exec,
@@ -259,7 +311,7 @@ type ConcurrentExecutor struct {
 }
 
 //Concurrent new
-func Concurrent(c int, exec Executor) Executor {
+func Concurrent(c int, exec Executor) *ConcurrentExecutor {
 	return &ConcurrentExecutor{
 		concurrent: c,
 		exec:       exec,
@@ -288,7 +340,7 @@ type ParallelExecutor struct {
 }
 
 //Parallel new
-func Parallel(execs ...Executor) Executor {
+func Parallel(execs ...Executor) *ParallelExecutor {
 	return &ParallelExecutor{
 		execs: execs,
 	}

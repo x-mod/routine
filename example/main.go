@@ -17,16 +17,11 @@ func foo(context.Context) error {
 }
 
 func main() {
-	tmctx, cancel := context.WithTimeout(context.TODO(), time.Second)
-	defer cancel()
-	err := routine.Main(tmctx,
-		routine.Concurrent(4, routine.ExecutorFunc(foo)),
-		routine.Cleanup(routine.ExecutorFunc(func(ctx context.Context) error {
-			log.Println("clear")
-			return nil
-		})),
+	err := routine.Main(
+		context.TODO(),
+		routine.ExecutorFunc(foo),
 	)
 	if err != nil {
-		log.Println("failed:", err)
+		log.Fatal(err)
 	}
 }
