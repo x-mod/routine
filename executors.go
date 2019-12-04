@@ -2,6 +2,7 @@ package routine
 
 import (
 	"context"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -247,19 +248,66 @@ func (c *CrontabExecutor) Execute(ctx context.Context) error {
 type CommandExecutor struct {
 	command string
 	args    []string
+	envs    []string
+	stdin   io.Reader
+	stdout  io.Writer
+	stderr  io.Writer
+}
+type CommandOpt func(*CommandExecutor)
+
+func ARG(arg string) CommandOpt {
+	return func(c *CommandExecutor) {
+		c.args = append(c.args, arg)
+	}
+}
+
+func ENV(env string) CommandOpt {
+	return func(c *CommandExecutor) {
+		c.envs = append(c.envs, env)
+	}
+}
+
+func Stdin(rd io.Reader) CommandOpt {
+	return func(c *CommandExecutor) {
+		c.stdin = rd
+	}
+}
+
+func Stdout(wr io.Writer) CommandOpt {
+	return func(c *CommandExecutor) {
+		c.stdout = wr
+	}
+}
+
+func Stderr(wr io.Writer) CommandOpt {
+	return func(c *CommandExecutor) {
+		c.stderr = wr
+	}
 }
 
 //Command new
-func Command(cmd string, args ...string) *CommandExecutor {
-	return &CommandExecutor{command: cmd, args: args}
+func Command(cmd string, opts ...CommandOpt) *CommandExecutor {
+	ce := &CommandExecutor{
+		command: cmd,
+		args:    []string{},
+		envs:    []string{},
+		stdin:   os.Stdin,
+		stdout:  os.Stdout,
+		stderr:  os.Stderr,
+	}
+	for _, opt := range opts {
+		opt(ce)
+	}
+	return ce
 }
 
 //Execute implement Executor
 func (cmd *CommandExecutor) Execute(ctx context.Context) error {
 	c := exec.CommandContext(ctx, cmd.command, cmd.args...)
-	c.Stdin = os.Stdin
-	c.Stdout = os.Stdout
-	c.Stderr = os.Stderr
+	c.Env = cmd.envs
+	c.Stdin = cmd.stdin
+	c.Stdout = cmd.stdout
+	c.Stderr = cmd.stderr
 	if err := c.Start(); err != nil {
 		return err
 	}
