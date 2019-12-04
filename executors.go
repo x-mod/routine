@@ -304,7 +304,7 @@ func Command(cmd string, opts ...CommandOpt) *CommandExecutor {
 //Execute implement Executor
 func (cmd *CommandExecutor) Execute(ctx context.Context) error {
 	c := exec.CommandContext(ctx, cmd.command, cmd.args...)
-	c.Env = cmd.envs
+	c.Env = append(c.Env, cmd.envs...)
 	c.Stdin = cmd.stdin
 	c.Stdout = cmd.stdout
 	c.Stderr = cmd.stderr
