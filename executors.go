@@ -3,6 +3,7 @@ package routine
 import (
 	"context"
 	"log"
+	"os"
 	"os/exec"
 	"sync"
 	"time"
@@ -256,6 +257,9 @@ func Command(cmd string, args ...string) *CommandExecutor {
 //Execute implement Executor
 func (cmd *CommandExecutor) Execute(ctx context.Context) error {
 	c := exec.CommandContext(ctx, cmd.command, cmd.args...)
+	c.Stdin = os.Stdin
+	c.Stdout = os.Stdout
+	c.Stderr = os.Stderr
 	if err := c.Start(); err != nil {
 		return err
 	}
