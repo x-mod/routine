@@ -412,3 +412,30 @@ func (pe *ParallelExecutor) Execute(ctx context.Context) error {
 	pe.wg.Wait()
 	return nil
 }
+
+//AppendExecutor
+type AppendExecutor struct {
+	execs []Executor
+}
+
+//Append new
+func Append(execs ...Executor) *AppendExecutor {
+	executor := &AppendExecutor{
+		execs: []Executor{},
+	}
+	executor.execs = append(executor.execs, execs...)
+	return executor
+}
+
+func (ae *AppendExecutor) Append(execs ...Executor) {
+	ae.execs = append(ae.execs, execs...)
+}
+
+func (ae *AppendExecutor) Execute(ctx context.Context) error {
+	for i, exec := range ae.execs {
+		if err := exec.Execute(ctx); err != nil {
+			return errors.Annotatef(err, "no(%d)", i)
+		}
+	}
+	return nil
+}
