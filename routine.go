@@ -51,7 +51,6 @@ func Cleanup(exec Executor) Opt {
 type Routine struct {
 	opts  *options
 	exec  Executor
-	rctx  context.Context
 	stop  chan bool
 	group sync.WaitGroup
 }
@@ -75,22 +74,23 @@ func (r *Routine) Execute(ctx context.Context) error {
 	if ctx == nil {
 		return errors.New("context required")
 	}
+	rctx := ctx
 	r.stop = make(chan bool)
-	r.rctx = WithParent(ctx, r)
+
 	//argments
 	if len(r.opts.args) > 0 {
-		r.rctx = WithArgments(r.rctx, r.opts.args...)
+		rctx = WithArgments(rctx, r.opts.args...)
 	}
 	//prepare
 	if r.opts.prepareExec != nil {
-		if err := r.opts.prepareExec.Execute(ctx); err != nil {
+		if err := r.opts.prepareExec.Execute(rctx); err != nil {
 			return errors.Annotate(err, "routine prepare")
 		}
 	}
 	//clearup defer
 	defer func() {
 		if r.opts.cleanupExec != nil {
-			if err := r.opts.cleanupExec.Execute(ctx); err != nil {
+			if err := r.opts.cleanupExec.Execute(rctx); err != nil {
 				log.Println("routine clearup failed:", err)
 			}
 		}
@@ -105,7 +105,7 @@ func (r *Routine) Execute(ctx context.Context) error {
 	}
 
 	// executor
-	ch := r.Go(r.rctx, r.exec)
+	ch := r.Go(rctx, r.exec)
 
 	// signals outside
 	for {
@@ -114,12 +114,12 @@ func (r *Routine) Execute(ctx context.Context) error {
 			return err
 		case <-r.stop:
 			return nil
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-rctx.Done():
+			return rctx.Err()
 		case sig := <-sigchan:
 			// cancel when a signal catched
 			if h, ok := sighandlers[sig]; ok {
-				if h(ctx) {
+				if h(rctx) {
 					return errors.Errorf("sig %v", sig)
 				}
 			}
@@ -139,6 +139,7 @@ func (r *Routine) Go(ctx context.Context, exec Executor) chan error {
 	ch := make(chan error)
 	r.group.Add(1)
 	go func() {
+		defer r.group.Done()
 		ch <- exec.Execute(ctx)
 	}()
 	return ch
