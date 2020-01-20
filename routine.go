@@ -12,13 +12,12 @@ import (
 )
 
 type options struct {
-	args         []interface{}
-	interrupts   []Interruptor
-	prepareBlock bool
-	prepareExec  Executor
-	cleanupExec  Executor
-	executors    []Executor
-	traceOut     io.Writer
+	args       []interface{}
+	interrupts []Interruptor
+	prepare    Executor
+	cleanup    Executor
+	childs     []Executor
+	traceOut   io.Writer
 }
 
 //Opt interface
@@ -41,7 +40,7 @@ func Interrupts(ints ...Interruptor) Opt {
 //Prepare Opt for Main
 func Prepare(exec Executor) Opt {
 	return func(opts *options) {
-		opts.prepareExec = exec
+		opts.prepare = exec
 	}
 }
 
@@ -49,7 +48,7 @@ func Prepare(exec Executor) Opt {
 func Go(exec Executor) Opt {
 	return func(opts *options) {
 		if exec != nil {
-			opts.executors = append(opts.executors, exec)
+			opts.childs = append(opts.childs, exec)
 		}
 	}
 }
@@ -57,7 +56,7 @@ func Go(exec Executor) Opt {
 //Cleanup Opt for Main
 func Cleanup(exec Executor) Opt {
 	return func(opts *options) {
-		opts.cleanupExec = exec
+		opts.cleanup = exec
 	}
 }
 
@@ -68,6 +67,7 @@ func Trace(wr io.Writer) Opt {
 	}
 }
 
+//Routine Definition
 type Routine struct {
 	opts  *options
 	exec  Executor
@@ -75,6 +75,7 @@ type Routine struct {
 	group sync.WaitGroup
 }
 
+//New a routine instance
 func New(exec Executor, opts ...Opt) *Routine {
 	mopts := &options{}
 	for _, opt := range opts {
@@ -86,82 +87,64 @@ func New(exec Executor, opts ...Opt) *Routine {
 	}
 }
 
+//Execute running the routine
 func (r *Routine) Execute(ctx context.Context) error {
-	defer r.close(ctx)
-	if r.opts.traceOut != nil {
-		if err := trace.Start(r.opts.traceOut); err != nil {
-			return errors.Annotate(err, "trace start")
-		}
+	if ctx == nil {
+		return errors.New("context required")
 	}
 
-	ctx, task := trace.NewTask(ctx, "Main")
-	defer task.End()
 	//already running
 	if r.stop != nil {
 		return nil
 	}
-	if ctx == nil {
-		return errors.New("context required")
-	}
-	rctx := ctx
 	r.stop = make(chan bool)
+
+	if err := r.prepare(ctx); err != nil {
+		return err
+	}
+	defer r.cleanup(ctx)
+
+	ctx, task := trace.NewTask(ctx, "main/Go")
+	defer task.End()
 
 	//argments
 	if len(r.opts.args) > 0 {
-		rctx = WithArgments(rctx, r.opts.args...)
+		ctx = WithArgments(ctx, r.opts.args...)
 	}
-	//prepare
-	if r.opts.prepareExec != nil {
-		defer trace.StartRegion(ctx, "Prepare").End()
-		if err := r.opts.prepareExec.Execute(ctx); err != nil {
-			trace.Logf(ctx, "Main", "prepare execute failed: %v", err)
-			return err
-		}
-	}
-	//cleanup defer
-	defer func() {
-		if r.opts.cleanupExec != nil {
-			trace.WithRegion(ctx, "Cleanup", func() {
-				if err := r.opts.cleanupExec.Execute(rctx); err != nil {
-					trace.Logf(ctx, "Main", "cleanup execute failed: %v", err)
-				}
-			})
-		}
-	}()
 
 	// signals
 	sigchan := make(chan os.Signal)
 	sighandlers := make(map[os.Signal]InterruptHandler)
 	for _, interruptor := range r.opts.interrupts {
-		trace.Logf(ctx, "Main", "signal on %v", interruptor.Signal())
+		trace.Logf(ctx, "routine", "signal on %v", interruptor.Signal())
 		signal.Notify(sigchan, interruptor.Signal())
 		sighandlers[interruptor.Signal()] = interruptor.Interrupt()
 	}
 
 	// executor
-	ch := r.mainGo(rctx, r.exec)
+	ch := r.mainGo(ctx, r.exec)
 
 	// go executors
-	for _, exec := range r.opts.executors {
-		r.childGo(rctx, exec)
+	for _, exec := range r.opts.childs {
+		r.childGo(ctx, exec)
 	}
 	// signals outside
 	for {
 		select {
 		case err := <-ch:
-			trace.Logf(ctx, "Main", "exiting for excutor stopped: %v", err)
+			trace.Logf(ctx, "routine", "main executor: %v", err)
 			return err
 		case <-r.stop:
-			trace.Log(rctx, "Main", "stop invoked")
+			trace.Log(ctx, "routine", "stop invoked")
 			return nil
-		case <-rctx.Done():
-			trace.Logf(ctx, "Main", "exiting for context done: %v", rctx.Err())
-			return rctx.Err()
+		case <-ctx.Done():
+			trace.Logf(ctx, "routine", "context done: %v", ctx.Err())
+			return ctx.Err()
 		case sig := <-sigchan:
 			// cancel when a signal catched
 			if h, ok := sighandlers[sig]; ok {
-				if h(rctx) {
-					trace.Logf(ctx, "Main", "exiting for sig catched: %v", sig)
+				trace.Logf(ctx, "routine", "signal catched: %v", sig)
+				if h(ctx) {
 					return errors.Errorf("sig %v", sig)
 				}
 			}
@@ -169,12 +152,41 @@ func (r *Routine) Execute(ctx context.Context) error {
 	}
 }
 
-func (r *Routine) close(ctx context.Context) {
+//Stop trigger the routine to stop
+func (r *Routine) Stop() {
 	if r.stop != nil {
 		close(r.stop)
 		r.stop = nil
 	}
+}
+
+func (r *Routine) prepare(ctx context.Context) error {
+	if r.opts.traceOut != nil {
+		if err := trace.Start(r.opts.traceOut); err != nil {
+			return errors.Annotate(err, "trace start")
+		}
+	}
+
+	if r.opts.prepare != nil {
+		ctx, task := trace.NewTask(ctx, "prepare")
+		defer task.End()
+		if err := r.opts.prepare.Execute(ctx); err != nil {
+			trace.Logf(ctx, "routine", "prepare failed: %v", err)
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *Routine) cleanup(ctx context.Context) {
 	r.group.Wait()
+	if r.opts.cleanup != nil {
+		ctx, task := trace.NewTask(ctx, "cleanup")
+		defer task.End()
+		if err := r.opts.cleanup.Execute(ctx); err != nil {
+			trace.Logf(ctx, "routine", "cleanup failed: %v", err)
+		}
+	}
 	if trace.IsEnabled() {
 		trace.Stop()
 	}
@@ -193,12 +205,12 @@ func (r *Routine) mainGo(ctx context.Context, exec Executor) chan error {
 }
 
 func (r *Routine) childGo(ctx context.Context, exec Executor) chan error {
-	ctx, task := trace.NewTask(ctx, "Go")
+	ctx, task := trace.NewTask(ctx, "child/Go")
 	ch := make(chan error, 1)
 	r.group.Add(1)
 	go func() {
-		defer task.End()
 		defer r.group.Done()
+		defer task.End()
 		trace.WithRegion(ctx, "Executor", func() {
 			ch <- exec.Execute(ctx)
 		})

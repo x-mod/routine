@@ -4,10 +4,13 @@ import (
 	"context"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"sync"
 	"time"
+
+	_ "net/http/pprof"
 
 	"github.com/gorhill/cronexpr"
 	"github.com/x-mod/errors"
@@ -438,4 +441,17 @@ func (ae *AppendExecutor) Execute(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+//Profiling
+type ProfilingExecutor struct {
+	address string
+}
+
+func Profiling(addr string) *ProfilingExecutor {
+	return &ProfilingExecutor{address: addr}
+}
+
+func (d *ProfilingExecutor) Execute(ctx context.Context) error {
+	return http.ListenAndServe(d.address, nil)
 }
