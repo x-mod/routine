@@ -74,7 +74,9 @@ func main(){
 			routine.Go(routine.ExecutorFunc(ChildGo)),
 			routine.Go(routine.ExecutorFunc(ChildGo)),
 			//signals
-			routine.Interrupts(routine.DefaultCancelInterruptors...),
+			routine.Signal(syscall.SIGINT, routine.SigHandler(func() {
+				os.Exit(1)
+			})),
 		),
 	)
 }
