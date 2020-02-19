@@ -2,22 +2,24 @@ package routine
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"runtime/trace"
 	"sync"
 
 	"github.com/x-mod/errors"
+	"github.com/x-mod/sigtrap"
 )
 
 type options struct {
-	args       []interface{}
-	interrupts []Interruptor
-	prepare    Executor
-	cleanup    Executor
-	childs     []Executor
-	traceOut   io.Writer
+	args     []interface{}
+	prepare  Executor
+	cleanup  Executor
+	childs   []Executor
+	traceOut io.Writer
+	sigtraps []*SigTrap
+	csignals []os.Signal
 }
 
 //Opt interface
@@ -30,10 +32,25 @@ func Arguments(args ...interface{}) Opt {
 	}
 }
 
-//Interrupts Opt for Main
-func Interrupts(ints ...Interruptor) Opt {
+type SigHandler func()
+type SigTrap struct {
+	sig     os.Signal
+	handler SigHandler
+}
+
+//Signal Opt for Main
+func Signal(sig os.Signal, handler SigHandler) Opt {
 	return func(opts *options) {
-		opts.interrupts = append(opts.interrupts, ints...)
+		if handler != nil {
+			opts.sigtraps = append(opts.sigtraps, &SigTrap{sig: sig, handler: handler})
+		}
+	}
+}
+
+//CancelSignals Opt for Main
+func CancelSignals(sigs ...os.Signal) Opt {
+	return func(opts *options) {
+		opts.csignals = append(opts.csignals, sigs...)
 	}
 }
 
@@ -73,18 +90,24 @@ type Routine struct {
 	exec  Executor
 	stop  chan bool
 	group sync.WaitGroup
+	caps  *sigtrap.Capture
 }
 
 //New a routine instance
 func New(exec Executor, opts ...Opt) *Routine {
-	mopts := &options{}
+	mopts := &options{
+		args:     []interface{}{},
+		sigtraps: []*SigTrap{},
+		csignals: []os.Signal{},
+	}
 	for _, opt := range opts {
 		opt(mopts)
 	}
-	return &Routine{
+	routine := &Routine{
 		opts: mopts,
 		exec: exec,
 	}
+	return routine
 }
 
 //Execute running the routine
@@ -112,13 +135,22 @@ func (r *Routine) Execute(ctx context.Context) error {
 		ctx = WithArgments(ctx, r.opts.args...)
 	}
 
-	// signals
-	sigchan := make(chan os.Signal)
-	sighandlers := make(map[os.Signal]InterruptHandler)
-	for _, interruptor := range r.opts.interrupts {
-		trace.Logf(ctx, "routine", "signal on %v", interruptor.Signal())
-		signal.Notify(sigchan, interruptor.Signal())
-		sighandlers[interruptor.Signal()] = interruptor.Interrupt()
+	//signals
+	if len(r.opts.csignals) > 0 {
+		cctx, cancel := context.WithCancel(ctx)
+		handler := SigHandler(cancel)
+		for _, sig := range r.opts.csignals {
+			r.opts.sigtraps = append(r.opts.sigtraps, &SigTrap{sig: sig, handler: handler})
+		}
+		ctx = cctx
+	}
+	if len(r.opts.sigtraps) > 0 {
+		sopts := make([]sigtrap.CaptureOpt, 0, len(r.opts.sigtraps))
+		for _, trap := range r.opts.sigtraps {
+			sopts = append(sopts, sigtrap.Trap(trap.sig, sigtrap.Handler(trap.handler)))
+		}
+		r.caps = sigtrap.New(sopts...)
+		r.childGo("sigtrap", ctx, ExecutorFunc(r.caps.Serve))
 	}
 
 	// executor
@@ -126,28 +158,26 @@ func (r *Routine) Execute(ctx context.Context) error {
 
 	// go executors
 	for _, exec := range r.opts.childs {
-		r.childGo(ctx, exec)
+		r.childGo("child", ctx, exec)
 	}
 	// signals outside
 	for {
 		select {
 		case err := <-ch:
 			trace.Logf(ctx, "routine", "main executor: %v", err)
+			if r.caps != nil {
+				r.caps.Close()
+			}
 			return err
 		case <-r.stop:
+			if r.caps != nil {
+				r.caps.Close()
+			}
 			trace.Log(ctx, "routine", "stop invoked")
 			return nil
 		case <-ctx.Done():
 			trace.Logf(ctx, "routine", "context done: %v", ctx.Err())
 			return ctx.Err()
-		case sig := <-sigchan:
-			// cancel when a signal catched
-			if h, ok := sighandlers[sig]; ok {
-				trace.Logf(ctx, "routine", "signal catched: %v", sig)
-				if h(ctx) {
-					return errors.Errorf("sig %v", sig)
-				}
-			}
 		}
 	}
 }
@@ -204,8 +234,8 @@ func (r *Routine) mainGo(ctx context.Context, exec Executor) chan error {
 	return ch
 }
 
-func (r *Routine) childGo(ctx context.Context, exec Executor) chan error {
-	ctx, task := trace.NewTask(ctx, "child/Go")
+func (r *Routine) childGo(name string, ctx context.Context, exec Executor) chan error {
+	ctx, task := trace.NewTask(ctx, fmt.Sprintf("%s/Go", name))
 	ch := make(chan error, 1)
 	r.group.Add(1)
 	go func() {

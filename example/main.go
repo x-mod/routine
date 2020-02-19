@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"os"
+	"syscall"
 	"time"
 
 	_ "net/http/pprof"
@@ -59,6 +60,9 @@ func main() {
 	if err := routine.Main(
 		context.TODO(),
 		routine.ExecutorFunc(bar),
+		routine.Signal(syscall.SIGINT, routine.SigHandler(func() {
+			os.Exit(1)
+		})),
 		routine.Prepare(routine.ExecutorFunc(prepare)),
 		routine.Cleanup(routine.ExecutorFunc(cleanup)),
 		routine.Trace(f),
