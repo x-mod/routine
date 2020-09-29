@@ -161,24 +161,22 @@ func (r *Routine) Execute(ctx context.Context) error {
 		r.childGo("child", ctx, exec)
 	}
 	// signals outside
-	for {
-		select {
-		case err := <-ch:
-			trace.Logf(ctx, "routine", "main executor: %v", err)
-			if r.caps != nil {
-				r.caps.Close()
-			}
-			return err
-		case <-r.stop:
-			if r.caps != nil {
-				r.caps.Close()
-			}
-			trace.Log(ctx, "routine", "stop invoked")
-			return nil
-		case <-ctx.Done():
-			trace.Logf(ctx, "routine", "context done: %v", ctx.Err())
-			return ctx.Err()
+	select {
+	case err := <-ch:
+		trace.Logf(ctx, "routine", "main executor: %v", err)
+		if r.caps != nil {
+			r.caps.Close()
 		}
+		return err
+	case <-r.stop:
+		if r.caps != nil {
+			r.caps.Close()
+		}
+		trace.Log(ctx, "routine", "stop invoked")
+		return nil
+	case <-ctx.Done():
+		trace.Logf(ctx, "routine", "context done: %v", ctx.Err())
+		return ctx.Err()
 	}
 }
 
