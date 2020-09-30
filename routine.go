@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/x-mod/errors"
+	"github.com/x-mod/event"
 	"github.com/x-mod/sigtrap"
 )
 
@@ -86,11 +87,13 @@ func Trace(wr io.Writer) Opt {
 
 //Routine Definition
 type Routine struct {
-	opts  *options
-	exec  Executor
-	stop  chan bool
-	group sync.WaitGroup
-	caps  *sigtrap.Capture
+	opts    *options
+	exec    Executor
+	group   sync.WaitGroup
+	caps    *sigtrap.Capture
+	close   chan struct{}
+	serving *event.Event
+	stopped *event.Event
 }
 
 //New a routine instance
@@ -104,8 +107,11 @@ func New(exec Executor, opts ...Opt) *Routine {
 		opt(mopts)
 	}
 	routine := &Routine{
-		opts: mopts,
-		exec: exec,
+		opts:    mopts,
+		exec:    exec,
+		close:   make(chan struct{}),
+		serving: event.New(),
+		stopped: event.New(),
 	}
 	return routine
 }
@@ -116,12 +122,6 @@ func (r *Routine) Execute(ctx context.Context) error {
 		return errors.New("context required")
 	}
 
-	//already running
-	if r.stop != nil {
-		return nil
-	}
-	r.stop = make(chan bool)
-
 	if err := r.prepare(ctx); err != nil {
 		return err
 	}
@@ -130,6 +130,10 @@ func (r *Routine) Execute(ctx context.Context) error {
 	ctx, task := trace.NewTask(ctx, "main/Go")
 	defer task.End()
 
+	//ctx, cancel
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	//argments
 	if len(r.opts.args) > 0 {
 		ctx = WithArgments(ctx, r.opts.args...)
@@ -137,12 +141,10 @@ func (r *Routine) Execute(ctx context.Context) error {
 
 	//signals
 	if len(r.opts.csignals) > 0 {
-		cctx, cancel := context.WithCancel(ctx)
 		handler := SigHandler(cancel)
 		for _, sig := range r.opts.csignals {
 			r.opts.sigtraps = append(r.opts.sigtraps, &SigTrap{sig: sig, handler: handler})
 		}
-		ctx = cctx
 	}
 	if len(r.opts.sigtraps) > 0 {
 		sopts := make([]sigtrap.CaptureOpt, 0, len(r.opts.sigtraps))
@@ -160,32 +162,36 @@ func (r *Routine) Execute(ctx context.Context) error {
 	for _, exec := range r.opts.childs {
 		r.childGo("child", ctx, exec)
 	}
+
+	// events
+	defer r.stopped.Fire()
+	r.serving.Fire()
+
 	// signals outside
 	select {
-	case err := <-ch:
-		trace.Logf(ctx, "routine", "main executor: %v", err)
-		if r.caps != nil {
-			r.caps.Close()
-		}
-		return err
-	case <-r.stop:
-		if r.caps != nil {
-			r.caps.Close()
-		}
-		trace.Log(ctx, "routine", "stop invoked")
-		return nil
 	case <-ctx.Done():
 		trace.Logf(ctx, "routine", "context done: %v", ctx.Err())
 		return ctx.Err()
+	case err := <-ch:
+		trace.Logf(ctx, "routine", "main executed: %v", err)
+		return err
+	case <-r.close:
+		trace.Logf(ctx, "routine", "close invoked")
+		return nil
 	}
 }
 
+func (r *Routine) Serving() <-chan struct{} {
+	return r.serving.Done()
+}
+
 //Stop trigger the routine to stop
-func (r *Routine) Stop() {
-	if r.stop != nil {
-		close(r.stop)
-		r.stop = nil
+func (r *Routine) Close() <-chan struct{} {
+	if r.serving.HasFired() {
+		close(r.close)
+		return r.stopped.Done()
 	}
+	return event.Done()
 }
 
 func (r *Routine) prepare(ctx context.Context) error {
