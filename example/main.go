@@ -31,9 +31,14 @@ func cleanup(ctx context.Context) error {
 func foo(ctx context.Context) error {
 	log.Println("foo begin")
 	defer log.Println("foo end")
-	time.Sleep(time.Second * 2)
-	trace.Logf(ctx, "foo", "sleeping 2s done")
-	return nil
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(3 * time.Second):
+		trace.Logf(ctx, "foo", "sleeping 3s done")
+		return nil
+	}
 }
 
 func bar(ctx context.Context) error {
@@ -43,7 +48,12 @@ func bar(ctx context.Context) error {
 		log.Println(i)
 		trace.Logf(ctx, "bar", "counting ... %d", i)
 	}
-	return nil
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(10 * time.Second):
+		return nil
+	}
 }
 
 func main() {
@@ -56,12 +66,12 @@ func main() {
 			log.Fatalf("failed to close trace file: %v", err)
 		}
 	}()
-
+	ctx, cancel := context.WithCancel(context.TODO())
 	if err := routine.Main(
-		context.TODO(),
+		ctx,
 		routine.ExecutorFunc(bar),
 		routine.Signal(syscall.SIGINT, routine.SigHandler(func() {
-			os.Exit(1)
+			cancel()
 		})),
 		routine.Prepare(routine.ExecutorFunc(prepare)),
 		routine.Cleanup(routine.ExecutorFunc(cleanup)),

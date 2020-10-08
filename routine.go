@@ -189,6 +189,7 @@ func (r *Routine) Serving() <-chan struct{} {
 func (r *Routine) Close() <-chan struct{} {
 	if r.serving.HasFired() {
 		close(r.close)
+		r.group.Wait()
 		return r.stopped.Done()
 	}
 	return event.Done()
