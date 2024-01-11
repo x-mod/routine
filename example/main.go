@@ -56,6 +56,21 @@ func bar(ctx context.Context) error {
 	}
 }
 
+func app(ctx context.Context) error {
+	log.Println("app begin")
+	defer log.Println("app end")
+
+	ch := routine.Child(ctx, routine.ExecutorFunc(func(ctx context.Context) error {
+		log.Println("append go ... begin")
+		<-time.After(10 * time.Second)
+		log.Println("append go ... end")
+		return nil
+	}))
+	<-ch
+
+	return nil
+}
+
 func main() {
 	f, err := os.Create("trace.out")
 	if err != nil {
@@ -76,6 +91,7 @@ func main() {
 		routine.Prepare(routine.ExecutorFunc(prepare)),
 		routine.Cleanup(routine.ExecutorFunc(cleanup)),
 		routine.Trace(f),
+		routine.Go(routine.ExecutorFunc(app)),
 		routine.Go(routine.ExecutorFunc(foo)),
 		routine.Go(routine.ExecutorFunc(foo)),
 		routine.Go(routine.ExecutorFunc(foo)),
